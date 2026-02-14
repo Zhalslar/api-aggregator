@@ -1,0 +1,14 @@
+{
+  "name": "api-aggregator-e2e",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Playwright E2E tests for api-aggregator dashboard",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:list": "playwright test --list"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2"
+  }
+}

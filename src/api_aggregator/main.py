@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -36,9 +38,8 @@ class APICoreApp:
             data_dir: Optional data root. If not provided,
                 built-in default path is used.
         """
-        setup_default_logging()
-
         self.cfg = APIConfig(data_dir)
+        setup_default_logging(level=self.cfg.log_level)
         self.db = JSONDatabase(self.cfg.data_dir)
 
         self.local = LocalDataService(self.cfg)
@@ -58,10 +59,12 @@ class APICoreApp:
                 self.api_mgr,
                 self.site_mgr,
                 restart_handler=self.restart_core_services,
+                restart_process_handler=self.restart_process,
             )
 
         self._started = False
         self._restart_lock = asyncio.Lock()
+        self._process_restart_lock = asyncio.Lock()
 
     async def start(self) -> None:
         """Start core services.
@@ -139,6 +142,18 @@ class APICoreApp:
             self.scheduler.start()
             self.scheduler.reload()
             logger.info("[app] core services restarted")
+
+    async def restart_process(self) -> None:
+        """Restart current Python process for full app/frontend refresh."""
+        async with self._process_restart_lock:
+            if not self._started:
+                raise RuntimeError("app is not running")
+            logger.info("[app] full process restart requested")
+            await asyncio.sleep(1.0)
+            python_exe = sys.executable
+            argv = [python_exe, *sys.argv]
+            logger.info("[app] execv: %s %s", python_exe, " ".join(sys.argv))
+            os.execv(python_exe, argv)
 
     def set_cron_entry_handler(self, handler: CronEntryHandler | None) -> None:
         """Register cron callback for triggered API entries.

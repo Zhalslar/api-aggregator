@@ -247,6 +247,17 @@ h1 {
   gap: 10px;
 }
 
+.header-version {
+  color: color-mix(in oklab, var(--muted) 78%, transparent);
+  font-size: 14px;
+  letter-spacing: 0.2px;
+  font-weight: 500;
+  line-height: 1.2;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+}
+
 .plugin-logo {
   width: 32px;
   height: 32px;
@@ -298,6 +309,30 @@ h1 {
   color: var(--btn-danger-text);
   box-shadow: none;
   transition: transform 0.16s ease, filter 0.2s ease, color 0.2s ease;
+}
+
+.update-btn {
+  border: 0;
+  background: transparent;
+  color: var(--btn-add-border);
+  box-shadow: none;
+  transition: transform 0.16s ease, filter 0.2s ease, color 0.2s ease;
+}
+
+.update-btn:hover {
+  background: transparent;
+  transform: translateY(-1px);
+  color: color-mix(in oklab, var(--btn-add-border) 86%, var(--text) 14%);
+  filter: saturate(1.1);
+}
+
+.update-btn:disabled {
+  opacity: 1;
+}
+
+.update-btn.is-loading .icon-svg {
+  animation: restart-icon-spin 0.85s linear infinite;
+  transform-origin: 50% 50%;
 }
 
 .restart-btn:hover {
@@ -377,7 +412,7 @@ h1 {
   gap: 8px;
 }
 
-.api-search-input {
+.pool-search-input {
   width: min(280px, 36vw);
 }
 
@@ -993,6 +1028,12 @@ textarea {
   border-radius: 14px;
 }
 
+.notice-dialog {
+  width: min(560px, 100%);
+  padding: 20px 22px;
+  border-radius: 14px;
+}
+
 .restart-dialog strong {
   font-size: 24px;
   letter-spacing: 0.2px;
@@ -1026,6 +1067,18 @@ textarea {
 
 #btnRestartClose {
   display: none;
+}
+
+#btnUpdateClose {
+  display: none;
+}
+
+#updateLog {
+  min-height: 140px;
+  max-height: 34vh;
+  white-space: pre-wrap;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
 }
 
 .restart-progress-track {

@@ -71,10 +71,25 @@ asyncio.run(main())
 
 `APICoreApp()` 主要默认值：
 
-- `data_dir`: `src/api_aggregator/data`
+- `data_dir`: `data/`（仓库根目录）
+- `内置目录`: `presets/`（仓库根目录，内置 API/站点配置）
 - `面板.enabled`: `True`
 - `面板.host`: `0.0.0.0`
 - `面板.port`: `4141`
+
+运行时会在 `data/app_config.json` 自动生成可持久化配置，常用可改项：
+
+```json
+{
+  "dashboard": { "enabled": true, "host": "0.0.0.0", "port": 4141 },
+  "http": {
+    "default_timeout": 60,
+    "default_headers": { "User-Agent": "...", "Accept": "*/*" }
+  },
+  "logging": { "level": "INFO" },
+  "paths": { "presets_dir": "presets" }
+}
+```
 
 ## 🤖 机器人框架对接（AstrBot 示例）
 

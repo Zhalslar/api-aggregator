@@ -1,0 +1,207 @@
+function createUiStateManager(deps) {
+  const {
+    textValue,
+    siteSortRules,
+    apiSortRules,
+    localSortRules,
+    getSortState,
+    setSortState,
+    getSitePage,
+    setSitePage,
+    getApiPage,
+    setApiPage,
+    getLocalPage,
+    setLocalPage,
+    getSiteSearchText,
+    setSiteSearchText,
+    getApiSearchText,
+    setApiSearchText,
+    getLocalSearchText,
+    setLocalSearchText,
+    getSitePageSize,
+    setSitePageSize,
+    getApiPageSize,
+    setApiPageSize,
+    getLocalPageSize,
+    setLocalPageSize,
+    setMainTab,
+    getMainTab,
+    loadPool,
+    renderSites,
+    renderApis,
+    renderLocalData,
+  } = deps;
+
+  function persistSortState() {
+    localStorage.setItem("api_aggregator_sort", JSON.stringify(getSortState()));
+  }
+
+  function onSiteSortChange(rule) {
+    setSortState({ ...getSortState(), site: rule || "name_asc" });
+    setSitePage(1);
+    persistSortState();
+    loadPool();
+  }
+
+  function onApiSortChange(rule) {
+    setSortState({ ...getSortState(), api: rule || "name_asc" });
+    setApiPage(1);
+    persistSortState();
+    loadPool();
+  }
+
+  function onLocalSortChange(rule) {
+    setSortState({ ...getSortState(), local: rule || "name_asc" });
+    setLocalPage(1);
+    persistSortState();
+    renderLocalData();
+  }
+
+  function onSiteHeaderSort(field) {
+    const rules = siteSortRules[field];
+    if (!rules || !rules.length) return;
+    const idx = rules.indexOf(getSortState().site);
+    const next = idx < 0 ? rules[0] : rules[(idx + 1) % rules.length];
+    onSiteSortChange(next);
+  }
+
+  function onApiHeaderSort(field) {
+    const rules = apiSortRules[field];
+    if (!rules || !rules.length) return;
+    const idx = rules.indexOf(getSortState().api);
+    const next = idx < 0 ? rules[0] : rules[(idx + 1) % rules.length];
+    onApiSortChange(next);
+  }
+
+  function onLocalHeaderSort(field) {
+    const rules = localSortRules[field];
+    if (!rules || !rules.length) return;
+    const idx = rules.indexOf(getSortState().local);
+    const next = idx < 0 ? rules[0] : rules[(idx + 1) % rules.length];
+    onLocalSortChange(next);
+  }
+
+  function onSiteSearchChange(value) {
+    setSiteSearchText(textValue(value).trim());
+    setSitePage(1);
+    renderSites();
+  }
+
+  function onApiSearchChange(value) {
+    setApiSearchText(textValue(value).trim());
+    setApiPage(1);
+    renderApis();
+  }
+
+  function onLocalSearchChange(value) {
+    setLocalSearchText(textValue(value).trim());
+    setLocalPage(1);
+    renderLocalData();
+  }
+
+  function onSitePageChange(page) {
+    const nextPage = Number(page || 1);
+    if (!Number.isFinite(nextPage) || nextPage < 1) return;
+    setSitePage(nextPage);
+    renderSites();
+  }
+
+  function onApiPageChange(page) {
+    const nextPage = Number(page || 1);
+    if (!Number.isFinite(nextPage) || nextPage < 1) return;
+    setApiPage(nextPage);
+    renderApis();
+  }
+
+  function onLocalPageChange(page) {
+    const nextPage = Number(page || 1);
+    if (!Number.isFinite(nextPage) || nextPage < 1) return;
+    setLocalPage(nextPage);
+    renderLocalData();
+  }
+
+  function onSitePageSizeChange(value) {
+    const raw = String(value || "").toLowerCase();
+    if (raw === "all") {
+      setSitePageSize("all");
+    } else {
+      const nextSize = Number.parseInt(raw, 10);
+      if (![10, 20, 50, 100].includes(nextSize)) return;
+      setSitePageSize(nextSize);
+    }
+    setSitePage(1);
+    localStorage.setItem("api_aggregator_page_size_site", String(getSitePageSize()));
+    renderSites();
+  }
+
+  function onApiPageSizeChange(value) {
+    const raw = String(value || "").toLowerCase();
+    if (raw === "all") {
+      setApiPageSize("all");
+    } else {
+      const nextSize = Number.parseInt(raw, 10);
+      if (![10, 20, 50, 100].includes(nextSize)) return;
+      setApiPageSize(nextSize);
+    }
+    setApiPage(1);
+    localStorage.setItem("api_aggregator_page_size_api", String(getApiPageSize()));
+    renderApis();
+  }
+
+  function onLocalPageSizeChange(value) {
+    const raw = String(value || "").toLowerCase();
+    if (raw === "all") {
+      setLocalPageSize("all");
+    } else {
+      const nextSize = Number.parseInt(raw, 10);
+      if (![10, 20, 50, 100].includes(nextSize)) return;
+      setLocalPageSize(nextSize);
+    }
+    setLocalPage(1);
+    localStorage.setItem("api_aggregator_page_size_local", String(getLocalPageSize()));
+    renderLocalData();
+  }
+
+  function switchMainTab(tab) {
+    const next = tab === "site" || tab === "api" || tab === "local" ? tab : "api";
+    setMainTab(next);
+    localStorage.setItem("api_aggregator_main_tab", getMainTab());
+
+    const panels = {
+      site: document.getElementById("panelSite"),
+      api: document.getElementById("panelApi"),
+      local: document.getElementById("panelLocal"),
+    };
+    const buttons = {
+      site: document.getElementById("tabBtnSite"),
+      api: document.getElementById("tabBtnApi"),
+      local: document.getElementById("tabBtnLocal"),
+    };
+
+    Object.keys(panels).forEach((key) => {
+      const active = key === getMainTab();
+      panels[key]?.classList.toggle("is-active", active);
+      buttons[key]?.classList.toggle("is-active", active);
+    });
+  }
+
+  return {
+    persistSortState,
+    onSiteSortChange,
+    onApiSortChange,
+    onLocalSortChange,
+    onSiteHeaderSort,
+    onApiHeaderSort,
+    onLocalHeaderSort,
+    onSiteSearchChange,
+    onApiSearchChange,
+    onLocalSearchChange,
+    onSitePageChange,
+    onApiPageChange,
+    onLocalPageChange,
+    onSitePageSizeChange,
+    onApiPageSizeChange,
+    onLocalPageSizeChange,
+    switchMainTab,
+  };
+}

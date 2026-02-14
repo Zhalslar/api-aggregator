@@ -24,14 +24,7 @@ class RemoteDataService:
 
         self.session: ClientSession | None = None
 
-        self.default_headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
-            ),
-            "Accept": "*/*",
-        }
+        self.default_headers = dict(self.cfg.default_request_headers)
 
     async def close(self):
         if self.session is not None and not self.session.closed:
@@ -48,7 +41,7 @@ class RemoteDataService:
         headers = site.get_headers() if site else self.default_headers.copy()
         keys = site.get_keys() if site else None
         params = entry.updated_params.copy()
-        timeout = site.timeout if site else 60
+        timeout = site.timeout if site else int(self.cfg.default_request_timeout)
 
         if keys:
             headers.update(keys)

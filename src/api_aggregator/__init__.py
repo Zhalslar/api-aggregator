@@ -9,8 +9,7 @@ from .entry import APIEntry, APIEntryManager, SiteEntry, SiteEntryManager
 from .main import APICoreApp
 from .model import ConfigNode, DataResource, DataType
 from .scheduler import APISchedulerService
-
-__version__ = "0.1.0"
+from .version import __version__
 
 __all__ = [
     "__version__",

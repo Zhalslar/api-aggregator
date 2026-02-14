@@ -19,7 +19,7 @@ def parse_args() -> argparse.Namespace:
         "--data-dir",
         type=Path,
         default=None,
-        help="Data directory path (default: src/api_aggregator/data).",
+        help="Data directory path (default: ./data).",
     )
     parser.add_argument(
         "--dashboard-host",

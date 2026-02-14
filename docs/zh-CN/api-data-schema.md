@@ -8,7 +8,11 @@
 - 站点池：`<data_dir>/site_pool.json`
 - API 池：`<data_dir>/api_pool.json`
 
-默认情况下，`data_dir` 由 `APIConfig` 指向 `src/api_aggregator/data`（可在初始化时自定义）。
+默认情况下，`data_dir` 由 `APIConfig` 指向仓库根目录 `data/`（可在初始化时自定义）。
+
+内置站点/API 配置默认从仓库根目录 `presets/` 读取：
+- `presets/builtin_sites.json`
+- `presets/builtin_apis.json`
 
 ## 结构总览
 

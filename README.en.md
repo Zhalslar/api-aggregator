@@ -82,12 +82,26 @@ asyncio.run(main())
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `data_dir` | `src/api_aggregator/data` | Data root directory |
+| `data_dir` | `data/` (project root) | Data root directory |
 | `dashboard.enabled` | `True` | Enable dashboard |
 | `dashboard.host` | `0.0.0.0` | Dashboard bind host |
 | `dashboard.port` | `4141` | Dashboard port |
 
 Request-level fallback strategy: `DataService.fetch(..., use_local=True)`. 
+
+Runtime will auto-create `data/app_config.json` for persistent user settings:
+
+```json
+{
+  "dashboard": { "enabled": true, "host": "0.0.0.0", "port": 4141 },
+  "http": {
+    "default_timeout": 60,
+    "default_headers": { "User-Agent": "...", "Accept": "*/*" }
+  },
+  "logging": { "level": "INFO" },
+  "paths": { "presets_dir": "presets" }
+}
+```
 
 ## 🤖 Framework Integration (AstrBot-style)
 
@@ -185,7 +199,7 @@ api-aggregator/
       dashboard/
       data_service/
       entry/
-      source/
+  presets/
   tests/
   .github/workflows/ci.yml
   pyproject.toml

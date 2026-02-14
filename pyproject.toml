@@ -34,8 +34,6 @@ include = ["api_aggregator*"]
 api_aggregator = [
   "dashboard/templates/**/*.html",
   "dashboard/assets/**/*",
-  "source/*.json",
-  "data/*.json",
 ]
 
 [tool.ruff]
