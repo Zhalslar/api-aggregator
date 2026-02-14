@@ -438,6 +438,137 @@ class LocalDataService:
         )
         return collections
 
+    @staticmethod
+    def _sort_collections(
+        items: list[dict[str, Any]], rule: str
+    ) -> list[dict[str, Any]]:
+        data = list(items)
+        sort_rule = str(rule or "name_asc").lower()
+        if sort_rule == "name_desc":
+            return sorted(
+                data, key=lambda x: str(x.get("name", "")).lower(), reverse=True
+            )
+        if sort_rule == "type_asc":
+            return sorted(
+                data,
+                key=lambda x: (
+                    str(x.get("type", "")).lower(),
+                    str(x.get("name", "")).lower(),
+                ),
+            )
+        if sort_rule == "type_desc":
+            return sorted(
+                data,
+                key=lambda x: (
+                    str(x.get("type", "")).lower(),
+                    str(x.get("name", "")).lower(),
+                ),
+                reverse=True,
+            )
+        if sort_rule == "count_asc":
+            return sorted(
+                data,
+                key=lambda x: (int(x.get("count", 0)), str(x.get("name", "")).lower()),
+            )
+        if sort_rule == "count_desc":
+            return sorted(
+                data,
+                key=lambda x: (int(x.get("count", 0)), str(x.get("name", "")).lower()),
+                reverse=True,
+            )
+        if sort_rule == "size_asc":
+            return sorted(
+                data,
+                key=lambda x: (
+                    int(x.get("size_bytes", 0)),
+                    str(x.get("name", "")).lower(),
+                ),
+            )
+        if sort_rule == "size_desc":
+            return sorted(
+                data,
+                key=lambda x: (
+                    int(x.get("size_bytes", 0)),
+                    str(x.get("name", "")).lower(),
+                ),
+                reverse=True,
+            )
+        if sort_rule == "updated_asc":
+            return sorted(
+                data,
+                key=lambda x: (
+                    int(x.get("updated_at", 0)),
+                    str(x.get("name", "")).lower(),
+                ),
+            )
+        if sort_rule == "updated_desc":
+            return sorted(
+                data,
+                key=lambda x: (
+                    int(x.get("updated_at", 0)),
+                    str(x.get("name", "")).lower(),
+                ),
+                reverse=True,
+            )
+        return sorted(data, key=lambda x: str(x.get("name", "")).lower())
+
+    @staticmethod
+    def _filter_collections(
+        items: list[dict[str, Any]], query: str
+    ) -> list[dict[str, Any]]:
+        q = str(query or "").strip().lower()
+        if not q:
+            return list(items)
+        return [
+            item
+            for item in items
+            if q in str(item.get("name", "")).lower()
+            or q in str(item.get("type", "")).lower()
+        ]
+
+    @staticmethod
+    def _paginate(
+        items: list[dict[str, Any]], page: int, page_size: int | str
+    ) -> dict[str, Any]:
+        total = len(items)
+        if page_size == "all":
+            return {
+                "items": items,
+                "page": 1,
+                "page_size": "all",
+                "total": total,
+                "total_pages": 1,
+                "start": 1 if total else 0,
+                "end": total,
+            }
+        size = max(1, int(page_size))
+        total_pages = max(1, (total + size - 1) // size)
+        safe_page = min(max(1, int(page)), total_pages)
+        start_idx = (safe_page - 1) * size
+        end_idx = min(start_idx + size, total)
+        return {
+            "items": items[start_idx:end_idx],
+            "page": safe_page,
+            "page_size": size,
+            "total": total,
+            "total_pages": total_pages,
+            "start": start_idx + 1 if total else 0,
+            "end": end_idx,
+        }
+
+    def list_collections_page(
+        self,
+        *,
+        page: int = 1,
+        page_size: int | str = 20,
+        query: str = "",
+        sort_rule: str = "name_asc",
+    ) -> dict[str, Any]:
+        data = self.list_collections()
+        filtered = self._filter_collections(data, query)
+        sorted_rows = self._sort_collections(filtered, sort_rule)
+        return self._paginate(sorted_rows, page, page_size)
+
     def get_collection_items(self, data_type: DataType, name: str) -> dict[str, Any]:
         if data_type.is_text:
             json_file = self._text_data_file(data_type, name)
@@ -557,7 +688,7 @@ class LocalDataService:
                 if isinstance(value, bool):
                     continue
                 try:
-                    idx = int(value)
+                    idx = int(value) # type: ignore
                 except (TypeError, ValueError):
                     continue
                 if idx >= 0:

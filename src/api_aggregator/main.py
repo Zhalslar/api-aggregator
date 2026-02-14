@@ -4,12 +4,11 @@ import asyncio
 import os
 import sys
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 
 from .config import APIConfig
 from .dashboard import DashboardServer
 from .data_service import DataService, LocalDataService, RemoteDataService
-from .database import JSONDatabase
+from .database import SQLiteDatabase
 from .entry import APIEntry, APIEntryManager, SiteEntryManager
 from .log import logger, setup_default_logging
 from .model import DataResource
@@ -28,19 +27,12 @@ class APICoreApp:
     4. Call `await stop()` on framework shutdown.
     """
 
-    def __init__(
-        self,
-        data_dir: Path | None = None,
-    ):
-        """Initialize runtime components.
+    def __init__(self):
+        """Initialize runtime components"""
 
-        Args:
-            data_dir: Optional data root. If not provided,
-                built-in default path is used.
-        """
-        self.cfg = APIConfig(data_dir)
-        setup_default_logging(level=self.cfg.log_level)
-        self.db = JSONDatabase(self.cfg.data_dir)
+        self.cfg = APIConfig()
+        setup_default_logging()
+        self.db = SQLiteDatabase(self.cfg)
 
         self.local = LocalDataService(self.cfg)
         self.api_mgr = APIEntryManager(self.cfg, self.db)
@@ -77,6 +69,12 @@ class APICoreApp:
             return
         logger.info("[app] starting api-aggregator")
         logger.info("[app] data dir: %s", self.cfg.data_dir)
+        self.db.reload_from_presets()
+        logger.info(
+            "[app] presets loaded into sqlite: sites=%d, apis=%d",
+            len(self.db.site_pool),
+            len(self.db.api_pool),
+        )
         await self.api_mgr.initialize()
         logger.info("[app] api entries: %d", len(self.api_mgr.entries))
         await self.site_mgr.initialize()

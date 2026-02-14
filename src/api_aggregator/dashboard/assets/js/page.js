@@ -1,4 +1,4 @@
-﻿if (typeof I18N === "undefined") {
+if (typeof I18N === "undefined") {
   throw new Error("i18n resource not loaded");
 }
 
@@ -8,15 +8,31 @@ let sortState = PageHelpers.getDefaultSortState();
 let siteSearchText = "";
 let apiSearchText = "";
 let localSearchText = "";
-let sitePage = 1;
-let apiPage = 1;
-let localPage = 1;
+let apiSiteFilterSelected = new Set();
+let apiSiteFilterOptionNames = [];
+let apiSiteFilterInitialized = false;
+function readPageFromUrl(paramName, fallback) {
+  try {
+    const raw = new URLSearchParams(window.location.search).get(paramName);
+    const parsed = Number.parseInt(String(raw || ""), 10);
+    if (Number.isFinite(parsed) && parsed >= 1) return parsed;
+  } catch {}
+  return fallback;
+}
+let sitePage = readPageFromUrl("sp", PageHelpers.getDefaultPage("api_aggregator_page_site"));
+let apiPage = readPageFromUrl("ap", PageHelpers.getDefaultPage("api_aggregator_page_api"));
+let localPage = readPageFromUrl("lp", PageHelpers.getDefaultPage("api_aggregator_page_local"));
 let sitePageSize = PageHelpers.getDefaultPageSize("api_aggregator_page_size_site");
 let apiPageSize = PageHelpers.getDefaultPageSize("api_aggregator_page_size_api");
 let localPageSize = PageHelpers.getDefaultPageSize("api_aggregator_page_size_local");
 let mainTab = PageHelpers.getDefaultMainTab();
 let state = { sites: [], apis: [] };
 let localCollections = [];
+let allSiteNames = [];
+let sitePagination = { page: sitePage, page_size: sitePageSize, total: 0, total_pages: 1, start: 0, end: 0 };
+let apiPagination = { page: apiPage, page_size: apiPageSize, total: 0, total_pages: 1, start: 0, end: 0 };
+let localPagination = { page: localPage, page_size: localPageSize, total: 0, total_pages: 1, start: 0, end: 0 };
+let hasPoolLoaded = false;
 let editorState = { kind: "", originalName: "" };
 let localViewerState = { type: "", name: "", detail: null, pendingDeletes: new Set() };
 const RESTART_MIN_ANIMATION_MS = 900;
@@ -24,7 +40,8 @@ let activeTestTaskId = "";
 const SITE_SORT_RULES = {
   name: ["name_asc", "name_desc"],
   url: ["url_asc", "url_desc"],
-  timeout: ["timeout_asc", "timeout_desc"]
+  timeout: ["timeout_asc", "timeout_desc"],
+  api_count: ["api_count_asc", "api_count_desc"]
 };
 const API_SORT_RULES = {
   name: ["name_asc", "name_desc"],
@@ -41,6 +58,16 @@ const LOCAL_SORT_RULES = {
   updated: ["updated_desc", "updated_asc"]
 };
 
+function persistPageQueryState() {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set("sp", String(Math.max(1, Number(sitePage || 1))));
+    url.searchParams.set("ap", String(Math.max(1, Number(apiPage || 1))));
+    url.searchParams.set("lp", String(Math.max(1, Number(localPage || 1))));
+    window.history.replaceState(null, "", url.toString());
+  } catch {}
+}
+
 function t(key, vars = {}) {
   const dict = I18N[currentLang] || I18N.en;
   const fallback = I18N.en[key] || key;
@@ -56,7 +83,9 @@ function setLanguage(lang) {
   localStorage.setItem("api_aggregator_lang", currentLang);
   document.documentElement.lang = currentLang === "zh" ? "zh-CN" : "en";
   applyI18n();
-  render();
+  if (hasPoolLoaded) {
+    render();
+  }
 }
 
 function updateLanguageIcon() {
@@ -138,6 +167,9 @@ const runningTasksManager = createRunningTasksManager({
   t,
   escapeHtml,
   getActiveTestTaskId: () => activeTestTaskId,
+  onViewTaskClick: (taskId) => {
+    testManager.onViewTaskClick(taskId);
+  },
 });
 const testManager = createTestManager({
   t,
@@ -179,6 +211,16 @@ const editorManager = createEditorManager({
   loadPool,
   showNoticeModal,
   testEditorPayloadAndRender,
+  getSites: () => state.sites,
+  setSites: (sites) => {
+    state.sites = Array.isArray(sites) ? sites : [];
+  },
+  renderSites,
+  getApis: () => state.apis,
+  setApis: (apis) => {
+    state.apis = Array.isArray(apis) ? apis : [];
+  },
+  renderApis,
   setEditorState: (nextState) => {
     editorState = { ...editorState, ...nextState };
   },
@@ -202,10 +244,22 @@ const localDataManager = createLocalDataManager({
   setLocalCollections: (collections) => {
     localCollections = Array.isArray(collections) ? collections : [];
   },
+  getLocalPagination: () => localPagination,
+  setLocalPagination: (meta) => {
+    localPagination = {
+      page: Math.max(1, Number(meta?.page || localPage || 1)),
+      page_size: meta?.page_size ?? localPageSize,
+      total: Math.max(0, Number(meta?.total || 0)),
+      total_pages: Math.max(1, Number(meta?.total_pages || 1)),
+      start: Math.max(0, Number(meta?.start || 0)),
+      end: Math.max(0, Number(meta?.end || 0)),
+    };
+  },
   getLocalSearchText: () => localSearchText,
   getLocalPage: () => localPage,
   setLocalPage: (page) => {
     localPage = page;
+    persistPageQueryState();
   },
   getLocalPageSize: () => localPageSize,
   getSortState: () => sortState,
@@ -224,6 +278,14 @@ const poolActionsManager = createPoolActionsManager({
   loadPool,
   getSites: () => state.sites,
   getApis: () => state.apis,
+  setSites: (sites) => {
+    state.sites = Array.isArray(sites) ? sites : [];
+  },
+  setApis: (apis) => {
+    state.apis = Array.isArray(apis) ? apis : [];
+  },
+  renderSites,
+  renderApis,
   testEditorPayloadAndRender,
 });
 const uiStateManager = createUiStateManager({
@@ -238,14 +300,17 @@ const uiStateManager = createUiStateManager({
   getSitePage: () => sitePage,
   setSitePage: (page) => {
     sitePage = page;
+    persistPageQueryState();
   },
   getApiPage: () => apiPage,
   setApiPage: (page) => {
     apiPage = page;
+    persistPageQueryState();
   },
   getLocalPage: () => localPage,
   setLocalPage: (page) => {
     localPage = page;
+    persistPageQueryState();
   },
   getSiteSearchText: () => siteSearchText,
   setSiteSearchText: (text) => {
@@ -276,9 +341,11 @@ const uiStateManager = createUiStateManager({
     mainTab = tab;
   },
   loadPool,
-  renderSites,
-  renderApis,
-  renderLocalData,
+  loadLocalData,
+  refreshPoolView: () => {
+    renderSites();
+    renderApis();
+  },
 });
 
 function updateRestartButtonState(btn = document.getElementById("restartIconBtn")) {
@@ -408,6 +475,12 @@ function applyI18n() {
   if (apiSearch) {
     apiSearch.placeholder = t("api_search_placeholder");
   }
+  const apiSiteFilterToggleAllText = document.querySelector(
+    "#apiSiteFilterDropdown [data-i18n='all_sites']"
+  );
+  if (apiSiteFilterToggleAllText) {
+    apiSiteFilterToggleAllText.textContent = t("all_sites");
+  }
   const localSearch = document.getElementById("localSearch");
   if (localSearch) {
     localSearch.placeholder = t("local_search_placeholder");
@@ -452,6 +525,7 @@ function applyI18n() {
   updateLocalDeleteConfirmButton();
   refreshUndoText();
   refreshEditorI18n();
+  updateApiSiteFilterButtonLabel();
   renderLocalData();
 }
 
@@ -485,6 +559,10 @@ function finishRunningTask(taskId, patch = {}) {
 
 function renderRunningTasks() {
   runningTasksManager.renderRunningTasks();
+}
+
+function onToggleRunningTasksPanel() {
+  runningTasksManager.onToggleRunningTasksPanel();
 }
 
 function boolText(value) {
@@ -632,29 +710,286 @@ function buildApiPayload() {
   return editorManager.buildApiPayload();
 }
 
-function renderSites() {
-  const filteredSites = PageHelpers.filterSites(state.sites, siteSearchText);
-  const total = filteredSites.length;
-  const pagination = PageHelpers.paginateItems(filteredSites, sitePage, sitePageSize);
-  sitePage = pagination.page;
+function closeApiSiteFilterDropdown() {
+  const dropdown = document.getElementById("apiSiteFilterDropdown");
+  if (dropdown) {
+    dropdown.classList.remove("open");
+  }
+}
 
+function toggleApiSiteFilterDropdown(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const dropdown = document.getElementById("apiSiteFilterDropdown");
+  if (!dropdown) return;
+  const shouldOpen = !dropdown.classList.contains("open");
+  dropdown.classList.toggle("open", shouldOpen);
+}
+
+function getApiSiteFilterNames() {
+  return (Array.isArray(allSiteNames) ? allSiteNames : [])
+    .map((name) => textValue(name).trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, currentLang === "zh" ? "zh-CN" : "en"));
+}
+
+function syncApiSiteFilterSelection(nextOptionNames) {
+  const optionNames = Array.isArray(nextOptionNames) ? nextOptionNames : [];
+  const optionSet = new Set(optionNames);
+  const wasAllSelected =
+    apiSiteFilterInitialized &&
+    apiSiteFilterOptionNames.length > 0 &&
+    apiSiteFilterSelected.size === apiSiteFilterOptionNames.length;
+
+  if (!apiSiteFilterInitialized) {
+    apiSiteFilterSelected = new Set(optionNames);
+    apiSiteFilterInitialized = true;
+    apiSiteFilterOptionNames = optionNames;
+    return;
+  }
+
+  const nextSelected = new Set(
+    Array.from(apiSiteFilterSelected).filter((name) => optionSet.has(name))
+  );
+  if (wasAllSelected) {
+    optionNames.forEach((name) => nextSelected.add(name));
+  }
+  apiSiteFilterSelected = nextSelected;
+  apiSiteFilterOptionNames = optionNames;
+}
+
+function updateApiSiteFilterButtonLabel() {
+  const btn = document.getElementById("apiSiteFilterBtn");
+  if (!btn) return;
+  const total = apiSiteFilterOptionNames.length;
+  const selected = apiSiteFilterSelected.size;
+  const label = t("api_site_filter");
+  if (!total) {
+    btn.textContent = `${label} (0/0)`;
+    return;
+  }
+  btn.textContent = `${label} (${selected}/${total})`;
+}
+
+function renderApiSiteFilter() {
+  const optionsWrap = document.getElementById("apiSiteFilterOptions");
+  const toggleAll = document.getElementById("apiSiteFilterToggleAll");
+  if (!optionsWrap || !toggleAll) return;
+
+  const optionNames = getApiSiteFilterNames();
+  syncApiSiteFilterSelection(optionNames);
+  const optionSet = new Set(optionNames);
+  apiSiteFilterSelected = new Set(
+    Array.from(apiSiteFilterSelected).filter((name) => optionSet.has(name))
+  );
+
+  optionsWrap.innerHTML = "";
+  optionNames.forEach((name) => {
+    const row = document.createElement("label");
+    row.className = "site-filter-option";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = apiSiteFilterSelected.has(name);
+    input.addEventListener("change", () => {
+      onApiSiteFilterOptionChange(name, input.checked);
+    });
+    const text = document.createElement("span");
+    text.textContent = name;
+    row.appendChild(input);
+    row.appendChild(text);
+    optionsWrap.appendChild(row);
+  });
+
+  const selected = apiSiteFilterSelected.size;
+  const total = optionNames.length;
+  toggleAll.checked = total > 0 && selected === total;
+  toggleAll.indeterminate = selected > 0 && selected < total;
+  updateApiSiteFilterButtonLabel();
+}
+
+function onApiSiteFilterToggleAll(checked) {
+  if (checked) {
+    apiSiteFilterSelected = new Set(apiSiteFilterOptionNames);
+  } else {
+    apiSiteFilterSelected = new Set();
+  }
+  apiPage = 1;
+  localStorage.setItem("api_aggregator_page_api", String(apiPage));
+  persistPageQueryState();
+  renderApis();
+}
+
+function onApiSiteFilterOptionChange(siteName, checked) {
+  const normalized = textValue(siteName).trim();
+  if (!normalized) return;
+  if (checked) {
+    apiSiteFilterSelected.add(normalized);
+  } else {
+    apiSiteFilterSelected.delete(normalized);
+  }
+  apiPage = 1;
+  localStorage.setItem("api_aggregator_page_api", String(apiPage));
+  persistPageQueryState();
+  renderApis();
+}
+
+function resolveApiSiteName(api) {
+  const direct = textValue(api?.site).trim();
+  if (direct) return direct;
+  const url = textValue(api?.url).trim();
+  if (!url) return "";
+  let matchedName = "";
+  let matchedLen = -1;
+  (Array.isArray(state.sites) ? state.sites : []).forEach((site) => {
+    const siteUrl = textValue(site?.url).trim();
+    if (!siteUrl) return;
+    if (url.startsWith(siteUrl) && siteUrl.length > matchedLen) {
+      matchedLen = siteUrl.length;
+      matchedName = textValue(site?.name).trim();
+    }
+  });
+  return matchedName;
+}
+
+function filterApisBySite(items) {
+  const safeItems = Array.isArray(items) ? items : [];
+  const totalSiteOptions = apiSiteFilterOptionNames.length;
+  if (!totalSiteOptions) {
+    return safeItems;
+  }
+  if (apiSiteFilterSelected.size >= totalSiteOptions) {
+    return safeItems;
+  }
+  if (apiSiteFilterSelected.size <= 0) {
+    return [];
+  }
+  return safeItems.filter((api) =>
+    apiSiteFilterSelected.has(resolveApiSiteName(api))
+  );
+}
+
+function compareTextAsc(a, b) {
+  return String(a || "").localeCompare(String(b || ""), currentLang === "zh" ? "zh-CN" : "en");
+}
+
+function sortSites(items, rule) {
+  const safeItems = Array.isArray(items) ? [...items] : [];
+  const safeRule = textValue(rule).trim().toLowerCase();
+  return safeItems.sort((left, right) => {
+    const leftName = textValue(left?.name).toLowerCase();
+    const rightName = textValue(right?.name).toLowerCase();
+    const leftUrl = textValue(left?.url).toLowerCase();
+    const rightUrl = textValue(right?.url).toLowerCase();
+    const leftTimeout = Number(left?.timeout || 0);
+    const rightTimeout = Number(right?.timeout || 0);
+    const leftApiCount = Number(left?.api_count || 0);
+    const rightApiCount = Number(right?.api_count || 0);
+    const leftEnabled = Boolean(left?.enabled) ? 1 : 0;
+    const rightEnabled = Boolean(right?.enabled) ? 1 : 0;
+
+    if (safeRule === "name_desc") return compareTextAsc(rightName, leftName);
+    if (safeRule === "url_asc") return compareTextAsc(leftUrl, rightUrl) || compareTextAsc(leftName, rightName);
+    if (safeRule === "url_desc") return compareTextAsc(rightUrl, leftUrl) || compareTextAsc(leftName, rightName);
+    if (safeRule === "timeout_asc") return leftTimeout - rightTimeout || compareTextAsc(leftName, rightName);
+    if (safeRule === "timeout_desc") return rightTimeout - leftTimeout || compareTextAsc(leftName, rightName);
+    if (safeRule === "api_count_asc") return leftApiCount - rightApiCount || compareTextAsc(leftName, rightName);
+    if (safeRule === "api_count_desc") return rightApiCount - leftApiCount || compareTextAsc(leftName, rightName);
+    if (safeRule === "enabled_first") return rightEnabled - leftEnabled || compareTextAsc(leftName, rightName);
+    if (safeRule === "disabled_first") return leftEnabled - rightEnabled || compareTextAsc(leftName, rightName);
+    return compareTextAsc(leftName, rightName);
+  });
+}
+
+function sortApis(items, rule) {
+  const safeItems = Array.isArray(items) ? [...items] : [];
+  const safeRule = textValue(rule).trim().toLowerCase();
+  return safeItems.sort((left, right) => {
+    const leftName = textValue(left?.name).toLowerCase();
+    const rightName = textValue(right?.name).toLowerCase();
+    const leftUrl = textValue(left?.url).toLowerCase();
+    const rightUrl = textValue(right?.url).toLowerCase();
+    const leftType = textValue(left?.type).toLowerCase();
+    const rightType = textValue(right?.type).toLowerCase();
+    const leftValid = Boolean(left?.valid) ? 1 : 0;
+    const rightValid = Boolean(right?.valid) ? 1 : 0;
+    const leftKeywords = Array.isArray(left?.keywords) ? left.keywords.length : 0;
+    const rightKeywords = Array.isArray(right?.keywords) ? right.keywords.length : 0;
+
+    if (safeRule === "name_desc") return compareTextAsc(rightName, leftName);
+    if (safeRule === "url_asc") return compareTextAsc(leftUrl, rightUrl) || compareTextAsc(leftName, rightName);
+    if (safeRule === "url_desc") return compareTextAsc(rightUrl, leftUrl) || compareTextAsc(leftName, rightName);
+    if (safeRule === "type_asc") return compareTextAsc(leftType, rightType) || compareTextAsc(leftName, rightName);
+    if (safeRule === "type_desc") return compareTextAsc(rightType, leftType) || compareTextAsc(leftName, rightName);
+    if (safeRule === "valid_first") return rightValid - leftValid || compareTextAsc(leftName, rightName);
+    if (safeRule === "invalid_first") return leftValid - rightValid || compareTextAsc(leftName, rightName);
+    if (safeRule === "keywords_desc") return rightKeywords - leftKeywords || compareTextAsc(leftName, rightName);
+    return compareTextAsc(leftName, rightName);
+  });
+}
+
+function renderSiteUrlCell(url) {
+  const rawUrl = textValue(url).trim();
+  const safeUrl = escapeHtml(rawUrl);
+  if (!rawUrl) {
+    return `<div class="url-scroll"></div>`;
+  }
+  if (!/^https?:\/\//i.test(rawUrl)) {
+    return `<div class="url-scroll" title="${safeUrl}">${safeUrl}</div>`;
+  }
+  return `
+    <a
+      class="url-scroll site-url-link"
+      href="${safeUrl}"
+      target="_blank"
+      rel="noopener noreferrer"
+      title="${safeUrl}"
+    >${safeUrl}</a>
+  `;
+}
+
+function renderSites() {
+  const filteredSites = PageHelpers.filterSites(
+    Array.isArray(state.sites) ? state.sites : [],
+    siteSearchText
+  );
+  const sortedSites = sortSites(filteredSites, sortState.site);
+  const paged = PageHelpers.paginateItems(sortedSites, sitePage, sitePageSize);
+  const pageItems = Array.isArray(paged.pageItems) ? paged.pageItems : [];
+  sitePage = Math.max(1, Number(paged.page || sitePage || 1));
+  localStorage.setItem("api_aggregator_page_site", String(sitePage));
+  persistPageQueryState();
+
+  const total = Math.max(0, Number(paged.total || 0));
+  const start = total > 0 ? Math.max(0, Number(paged.startIndex || 0)) + 1 : 0;
+  const end = total > 0 ? Math.min(total, Math.max(0, Number(paged.startIndex || 0)) + pageItems.length) : 0;
+  sitePagination = {
+    page: sitePage,
+    page_size: sitePageSize,
+    total,
+    total_pages: Math.max(1, Number(paged.totalPages || 1)),
+    start: Math.max(0, Number(paged.startIndex || 0)),
+    end,
+  };
   document.getElementById("siteCount").textContent = formatItems(total);
   renderPager({
     pagerId: "sitePagerTop",
     page: sitePage,
-    totalPages: pagination.totalPages,
+    totalPages: sitePagination.total_pages,
     total,
-    start: pagination.startIndex + 1,
-    end: pagination.startIndex + pagination.pageItems.length,
+    start,
+    end,
     onPageChange: "onSitePageChange"
   });
 
-  const rows = pagination.pageItems.map((s, i) => `
+  const rows = pageItems.map((s, i) => `
         <tr>
-          <td>${pagination.startIndex + i + 1}</td>
+          <td>${Math.max(0, Number(sitePagination.start || 0)) + i + 1}</td>
           <td><code class="name-code">${escapeHtml(s.name || "")}</code></td>
-          <td class="url-cell"><div class="url-scroll" title="${escapeHtml(s.url || "")}">${escapeHtml(s.url || "")}</div></td>
+          <td class="url-cell">${renderSiteUrlCell(s.url || "")}</td>
           <td>${Number(s.timeout || 60)}</td>
+          <td>${Math.max(0, Number(s.api_count || 0))}</td>
           <td class="actions-cell">
             <label class="switch-toggle table-switch" title="${Boolean(s.enabled) ? t("disable_action") : t("enable_action")}">
               <input
@@ -664,7 +999,7 @@ function renderSites() {
               >
               <span class="switch-slider"></span>
             </label>
-            <button onclick="openSiteEditor(${i})">${t("edit")}</button>
+            <button onclick='openSiteEditorByName("${encodeURIComponent(s.name || "")}")'>${t("edit")}</button>
             <button class="danger" onclick='removeSite(this, "${encodeURIComponent(s.name || "")}")'>${t("delete")}</button>
           </td>
         </tr>
@@ -675,32 +1010,52 @@ function renderSites() {
           <th class="sortable-head" onclick="onSiteHeaderSort('name')">${t("name")}<span class="sort-indicator">${PageHelpers.getSortIndicator(sortState.site, SITE_SORT_RULES.name)}</span></th>
           <th class="sortable-head" onclick="onSiteHeaderSort('url')">${t("url")}<span class="sort-indicator">${PageHelpers.getSortIndicator(sortState.site, SITE_SORT_RULES.url)}</span></th>
           <th class="sortable-head" onclick="onSiteHeaderSort('timeout')">${t("timeout")}<span class="sort-indicator">${PageHelpers.getSortIndicator(sortState.site, SITE_SORT_RULES.timeout)}</span></th>
+          <th class="sortable-head" onclick="onSiteHeaderSort('api_count')">${t("api_count")}<span class="sort-indicator">${PageHelpers.getSortIndicator(sortState.site, SITE_SORT_RULES.api_count)}</span></th>
           <th>${t("actions")}</th>
         </tr>
-        ${rows || `<tr><td colspan="5" class="empty-cell">${t("no_data")}</td></tr>`}
+        ${rows || `<tr><td colspan="6" class="empty-cell">${t("no_data")}</td></tr>`}
       `;
 }
 
 function renderApis() {
-  const filteredApis = PageHelpers.filterApis(state.apis, apiSearchText);
-  const total = filteredApis.length;
-  const pagination = PageHelpers.paginateItems(filteredApis, apiPage, apiPageSize);
-  apiPage = pagination.page;
+  renderApiSiteFilter();
+  const searchedApis = PageHelpers.filterApis(
+    Array.isArray(state.apis) ? state.apis : [],
+    apiSearchText
+  );
+  const siteFilteredApis = filterApisBySite(searchedApis);
+  const sortedApis = sortApis(siteFilteredApis, sortState.api);
+  const paged = PageHelpers.paginateItems(sortedApis, apiPage, apiPageSize);
+  const pageItems = Array.isArray(paged.pageItems) ? paged.pageItems : [];
+  apiPage = Math.max(1, Number(paged.page || apiPage || 1));
+  localStorage.setItem("api_aggregator_page_api", String(apiPage));
+  persistPageQueryState();
 
+  const total = Math.max(0, Number(paged.total || 0));
+  const start = total > 0 ? Math.max(0, Number(paged.startIndex || 0)) + 1 : 0;
+  const end = total > 0 ? Math.min(total, Math.max(0, Number(paged.startIndex || 0)) + pageItems.length) : 0;
+  apiPagination = {
+    page: apiPage,
+    page_size: apiPageSize,
+    total,
+    total_pages: Math.max(1, Number(paged.totalPages || 1)),
+    start: Math.max(0, Number(paged.startIndex || 0)),
+    end,
+  };
   document.getElementById("apiCount").textContent = formatItems(total);
   renderPager({
     pagerId: "apiPagerTop",
     page: apiPage,
-    totalPages: pagination.totalPages,
+    totalPages: apiPagination.total_pages,
     total,
-    start: pagination.startIndex + 1,
-    end: pagination.startIndex + pagination.pageItems.length,
+    start,
+    end,
     onPageChange: "onApiPageChange"
   });
 
-  const rows = pagination.pageItems.map((a, i) => `
+  const rows = pageItems.map((a, i) => `
         <tr>
-          <td>${pagination.startIndex + i + 1}</td>
+          <td>${Math.max(0, Number(apiPagination.start || 0)) + i + 1}</td>
           <td><code class="name-code">${escapeHtml(a.name || "")}</code></td>
           <td class="url-cell"><div class="url-scroll" title="${escapeHtml(a.url || "")}">${escapeHtml(a.url || "")}</div></td>
           <td>${formatTypeCell(a.type)}</td>
@@ -743,24 +1098,23 @@ function renderPager({ pagerId, page, totalPages, total, start, end, onPageChang
   const pager = document.getElementById(pagerId);
   if (!pager) return;
   const safeTotal = Math.max(0, Number(total || 0));
+  const safeTotalPages = Math.max(1, Number(totalPages || 1));
+  const safePage = Math.min(Math.max(1, Number(page || 1)), safeTotalPages);
   const rangeText = safeTotal > 0
     ? `${Math.max(1, Number(start || 1))}-${Math.max(1, Number(end || 1))} / ${safeTotal}`
     : "0-0 / 0";
-  if (totalPages <= 1) {
-    pager.innerHTML = `<span class="pager-range">${escapeHtml(rangeText)}</span>`;
-    return;
-  }
-
-  const firstDisabled = page <= 1 ? "disabled" : "";
-  const prevDisabled = page <= 1 ? "disabled" : "";
-  const nextDisabled = page >= totalPages ? "disabled" : "";
-  const lastDisabled = page >= totalPages ? "disabled" : "";
+  const firstDisabled = safePage <= 1 ? "disabled" : "";
+  const prevDisabled = safePage <= 1 ? "disabled" : "";
+  const nextDisabled = safePage >= safeTotalPages ? "disabled" : "";
+  const lastDisabled = safePage >= safeTotalPages ? "disabled" : "";
+  const prevPage = Math.max(1, safePage - 1);
+  const nextPage = Math.min(safeTotalPages, safePage + 1);
   pager.innerHTML = `
         <button type="button" class="pager-icon-btn" title="${escapeHtml(t("page_first"))}" ${firstDisabled} onclick="${onPageChange}(1)">&lt;&lt;</button>
-        <button type="button" class="pager-icon-btn" title="${escapeHtml(t("page_prev"))}" ${prevDisabled} onclick="${onPageChange}(${page - 1})">&lt;</button>
+        <button type="button" class="pager-icon-btn" title="${escapeHtml(t("page_prev"))}" ${prevDisabled} onclick="${onPageChange}(${prevPage})">&lt;</button>
         <span class="pager-range">${escapeHtml(rangeText)}</span>
-        <button type="button" class="pager-icon-btn" title="${escapeHtml(t("page_next"))}" ${nextDisabled} onclick="${onPageChange}(${page + 1})">&gt;</button>
-        <button type="button" class="pager-icon-btn" title="${escapeHtml(t("page_last"))}" ${lastDisabled} onclick="${onPageChange}(${totalPages})">&gt;&gt;</button>
+        <button type="button" class="pager-icon-btn" title="${escapeHtml(t("page_next"))}" ${nextDisabled} onclick="${onPageChange}(${nextPage})">&gt;</button>
+        <button type="button" class="pager-icon-btn" title="${escapeHtml(t("page_last"))}" ${lastDisabled} onclick="${onPageChange}(${safeTotalPages})">&gt;&gt;</button>
       `;
 }
 
@@ -865,6 +1219,12 @@ function openSiteEditor(index) {
   openEditor("site", state.sites[index] || null);
 }
 
+function openSiteEditorByName(name) {
+  const decoded = decodeURIComponent(name || "");
+  const target = state.sites.find((site) => textValue(site?.name) === decoded) || null;
+  openEditor("site", target);
+}
+
 function openApiEditor(index) {
   openEditor("api", state.apis[index] || null);
 }
@@ -923,24 +1283,24 @@ function onToggleSingleRepeatPauseClick() {
   testManager.onToggleSingleRepeatPauseClick();
 }
 
-function closeDuplicateChoiceModal(defaultChoice = "skip_once") {
-  testManager.closeDuplicateChoiceModal(defaultChoice);
+function onToggleSingleTestParamSheetClick() {
+  testManager.onToggleSingleTestParamSheetClick();
 }
 
-function onDuplicateChoiceClick(choice) {
-  testManager.onDuplicateChoiceClick(choice);
+function onToggleBatchPauseClick() {
+  testManager.onToggleBatchPauseClick();
 }
 
-async function askDuplicateHandling(name) {
-  return await testManager.askDuplicateHandling(name);
+function onStopBatchTestClick() {
+  testManager.onStopBatchTestClick();
 }
 
 async function runSinglePreviewOnce(payload, options = {}) {
   return await testManager.runSinglePreviewOnce(payload, options);
 }
 
-async function testEditorPayloadAndRender(payload) {
-  await testManager.testEditorPayloadAndRender(payload);
+async function testEditorPayloadAndRender(payload, options = {}) {
+  await testManager.testEditorPayloadAndRender(payload, options);
 }
 
 async function removeSite(btn, name) {
@@ -1015,6 +1375,10 @@ function onStopTaskClick(taskId) {
   testManager.onStopTaskClick(taskId);
 }
 
+function onViewTaskClick(taskId) {
+  testManager.onViewTaskClick(taskId);
+}
+
 async function onToggleSingleRepeatClick(btn) {
   void btn;
   await testManager.onToggleSingleRepeatClick();
@@ -1049,7 +1413,9 @@ async function testApisStream(names = [], task = null) {
 }
 
 async function onTestAllClick(btn) {
-  await testManager.onTestAllClick(btn);
+  await withButtonLoading(btn, async () => {
+    await testApisStream([], createRunningTask("batch", t("test_all_title")));
+  });
 }
 
 async function onUpdateAppClick(btn) {
@@ -1081,24 +1447,37 @@ async function onEditorTestClick(btn) {
   }
 }
 
-async function loadPool() {
+async function loadPool(options = {}) {
+  const includeLocalData = options.includeLocalData !== false;
+  const silent = Boolean(options.silent);
   try {
-    const params = new URLSearchParams({
-      site_sort: sortState.site,
-      api_sort: sortState.api
-    });
-    const [data, localData] = await Promise.all([
-      req(`/api/pool/sorted?${params.toString()}`),
-      req("/api/local-data")
-    ]);
+    const data = await req("/api/pool");
     state = {
       sites: Array.isArray(data.sites) ? data.sites : [],
       apis: Array.isArray(data.apis) ? data.apis : []
     };
-    localCollections = Array.isArray(localData?.collections) ? localData.collections : [];
-    render();
+    allSiteNames = Array.from(
+      new Set(
+        state.sites
+          .map((item) => textValue(item?.name).trim())
+          .filter(Boolean)
+      )
+    );
+    sitePage = Math.max(1, Number(sitePage || 1));
+    apiPage = Math.max(1, Number(apiPage || 1));
+    localStorage.setItem("api_aggregator_page_site", String(sitePage));
+    localStorage.setItem("api_aggregator_page_api", String(apiPage));
+    persistPageQueryState();
+    hasPoolLoaded = true;
+    renderSites();
+    renderApis();
+    if (includeLocalData) {
+      await loadLocalData();
+    }
   } catch (err) {
-    showNoticeModal(err.message || String(err));
+    if (!silent) {
+      showNoticeModal(err.message || String(err));
+    }
   }
 }
 
@@ -1106,6 +1485,16 @@ window.addEventListener("resize", () => {
   document.querySelectorAll(".list-collection[id]").forEach((node) => {
     applyListLayout(node.id);
   });
+});
+
+document.addEventListener("click", (event) => {
+  const wrap = document.getElementById("apiSiteFilterWrap");
+  if (!wrap) return;
+  const target = event.target;
+  if (target instanceof Node && wrap.contains(target)) {
+    return;
+  }
+  closeApiSiteFilterDropdown();
 });
 
 setTheme(currentTheme);

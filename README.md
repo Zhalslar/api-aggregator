@@ -1,4 +1,4 @@
-﻿# api-aggregator
+# api-aggregator
 
 <p align="center">
   <img src="./src/api_aggregator/dashboard/assets/images/logo.png" alt="api-aggregator logo" width="160" />
@@ -16,7 +16,6 @@
 
 轻量级 API 聚合核心运行时，提供 API/站点池管理、远程拉取解析、本地持久化、定时调度和 面板 管理。
 
-仓库地址：`https://github.com/Zhalslar/api-aggregator`
 
 ## 📚 目录
 
@@ -122,14 +121,12 @@ asyncio.run(main())
 ```python
 from __future__ import annotations
 
-from pathlib import Path
-
 from api_aggregator import APICoreApp, APIEntry
 
 
 class BotFrameworkAdapter:
     def __init__(self) -> None:
-        self.app = APICoreApp(data_dir=Path("data/api-aggregator"))
+        self.app = APICoreApp()
         self.app.set_cron_entry_handler(self.on_cron_entry)
 
     async def on_framework_start(self) -> None:

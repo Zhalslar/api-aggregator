@@ -8,6 +8,10 @@ function createPoolActionsManager(deps) {
     loadPool,
     getSites,
     getApis,
+    setSites,
+    setApis,
+    renderSites,
+    renderApis,
     testEditorPayloadAndRender,
   } = deps;
 
@@ -58,7 +62,7 @@ function createPoolActionsManager(deps) {
         } else {
           await req("/api/api", { method: "POST", body: JSON.stringify(payload) });
         }
-        await loadPool();
+        await loadPool({ includeLocalData: false });
       });
     } catch (err) {
       showNoticeModal(err.message || String(err));
@@ -71,7 +75,7 @@ function createPoolActionsManager(deps) {
         const decoded = decodeURIComponent(name);
         const backup = getSites().find((item) => textValue(item?.name) === decoded) || null;
         await req(`/api/site/${encodeURIComponent(decoded)}`, { method: "DELETE" });
-        await loadPool();
+        await loadPool({ includeLocalData: false });
         if (backup) {
           showUndoNotice("site", backup);
         }
@@ -87,7 +91,10 @@ function createPoolActionsManager(deps) {
         const decoded = decodeURIComponent(name);
         const backup = getApis().find((item) => textValue(item?.name) === decoded) || null;
         await req(`/api/api/${encodeURIComponent(decoded)}`, { method: "DELETE" });
-        await loadPool();
+        const nextApis = getApis().filter((item) => textValue(item?.name) !== decoded);
+        setApis(nextApis);
+        renderApis();
+        void loadPool({ includeLocalData: false, silent: true });
         if (backup) {
           showUndoNotice("api", backup);
         }
@@ -105,7 +112,14 @@ function createPoolActionsManager(deps) {
           method: "PUT",
           body: JSON.stringify({ enabled: Boolean(nextEnabled) }),
         });
-        await loadPool();
+        const nextSites = getSites().map((item) =>
+          textValue(item?.name) === decoded
+            ? { ...item, enabled: Boolean(nextEnabled) }
+            : item
+        );
+        setSites(nextSites);
+        renderSites();
+        void loadPool({ includeLocalData: false, silent: true });
       } catch (err) {
         showNoticeModal(err.message || String(err));
       }
@@ -120,7 +134,14 @@ function createPoolActionsManager(deps) {
           method: "PUT",
           body: JSON.stringify({ enabled: Boolean(nextEnabled) }),
         });
-        await loadPool();
+        const nextApis = getApis().map((item) =>
+          textValue(item?.name) === decoded
+            ? { ...item, enabled: Boolean(nextEnabled) }
+            : item
+        );
+        setApis(nextApis);
+        renderApis();
+        void loadPool({ includeLocalData: false, silent: true });
       } catch (err) {
         showNoticeModal(err.message || String(err));
       }
@@ -128,19 +149,35 @@ function createPoolActionsManager(deps) {
   }
 
   async function testSingleApi(btn, name) {
-    await withButtonLoading(btn, async () => {
-      try {
-        const decoded = decodeURIComponent(name);
-        const payload = getApis().find((api) => textValue(api?.name) === decoded);
-        if (!payload) {
-          throw new Error(t("api_not_found"));
-        }
-        await testEditorPayloadAndRender(payload);
-        await loadPool();
-      } catch (err) {
-        showNoticeModal(err.message || String(err));
+    if (btn && btn.dataset.loading === "1") return;
+    const originalText = btn ? textValue(btn.textContent) : "";
+    const originalTitle = btn ? textValue(btn.title) : "";
+    try {
+      if (btn) {
+        btn.dataset.loading = "1";
+        btn.disabled = true;
+        btn.classList.add("is-loading");
+        btn.textContent = originalText || t("test");
+        btn.title = t("test_running");
       }
-    });
+      const decoded = decodeURIComponent(name);
+      const payload = getApis().find((api) => textValue(api?.name) === decoded);
+      if (!payload) {
+        throw new Error(t("api_not_found"));
+      }
+      await testEditorPayloadAndRender(payload, { deferModalUntilDone: true });
+      await loadPool({ includeLocalData: false });
+    } catch (err) {
+      showNoticeModal(err.message || String(err));
+    } finally {
+      if (btn) {
+        btn.dataset.loading = "0";
+        btn.disabled = false;
+        btn.classList.remove("is-loading");
+        btn.textContent = originalText || t("test");
+        btn.title = originalTitle;
+      }
+    }
   }
 
   return {

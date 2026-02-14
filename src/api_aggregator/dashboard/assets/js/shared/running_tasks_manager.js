@@ -1,8 +1,10 @@
 function createRunningTasksManager(deps) {
-  const { t, escapeHtml, getActiveTestTaskId } = deps;
+  const { t, escapeHtml, getActiveTestTaskId, onViewTaskClick } = deps;
 
   let taskSeq = 0;
   const runningTasks = [];
+  let panelOpen = false;
+  let outsideCloseBound = false;
 
   function buildTestStatsText(stats) {
     const completed = Math.max(0, Number(stats?.completed || 0));
@@ -63,23 +65,58 @@ function createRunningTasksManager(deps) {
     renderRunningTasks();
   }
 
-  function renderRunningTasks() {
-    const bar = document.getElementById("runningTasksBar");
-    if (!bar) return;
+  function bindOutsideClose() {
+    if (outsideCloseBound) return;
+    outsideCloseBound = true;
+    document.addEventListener("click", (event) => {
+      if (!panelOpen) return;
+      const fab = document.getElementById("runningTasksFab");
+      if (!fab) return;
+      if (fab.contains(event.target)) return;
+      panelOpen = false;
+      renderRunningTasks();
+    });
+  }
+
+  function onToggleRunningTasksPanel() {
     const active = runningTasks.filter((task) => task.running);
     if (!active.length) {
-      bar.classList.remove("open");
+      panelOpen = false;
+      renderRunningTasks();
+      return;
+    }
+    panelOpen = !panelOpen;
+    renderRunningTasks();
+  }
+
+  function renderRunningTasks() {
+    bindOutsideClose();
+    const fab = document.getElementById("runningTasksFab");
+    const bar = document.getElementById("runningTasksBar");
+    const toggle = document.getElementById("runningTasksToggle");
+    const countNode = document.getElementById("runningTasksCount");
+    if (!fab || !bar || !toggle || !countNode) return;
+    const active = runningTasks.filter((task) => task.running);
+    countNode.textContent = String(active.length);
+    const toggleLabel = `${t("running_tasks")} (${active.length})`;
+    toggle.title = toggleLabel;
+    toggle.setAttribute("aria-label", toggleLabel);
+    if (!active.length) {
+      panelOpen = false;
+      fab.classList.remove("open");
+      fab.classList.remove("expanded");
       bar.innerHTML = "";
       return;
     }
-    bar.classList.add("open");
+    fab.classList.add("open");
+    fab.classList.toggle("expanded", panelOpen);
     const chips = active
       .map(
         (task) => `
         <span class="running-task-chip">
           <strong>${escapeHtml(task.title)}</strong>
           <span>${escapeHtml(buildTestStatsText(task))}</span>
-          <button type="button" class="btn-square" onclick="onStopTaskClick('${task.id}')">${escapeHtml(t("stop"))}</button>
+          <button type="button" class="btn-square" onclick="onViewTaskClick('${task.id}')">${escapeHtml(t("view"))}</button>
         </span>
       `
       )
@@ -99,6 +136,7 @@ function createRunningTasksManager(deps) {
     getRunningTask,
     patchRunningTask,
     finishRunningTask,
+    onToggleRunningTasksPanel,
     renderRunningTasks,
   };
 }

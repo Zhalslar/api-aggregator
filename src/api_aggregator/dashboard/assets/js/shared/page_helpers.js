@@ -46,6 +46,17 @@ const PageHelpers = (window.PageHelpers = {
     return "all";
   },
 
+  getDefaultPage(storageKey) {
+    const key = textValue(storageKey).trim();
+    if (!key) return 1;
+    const raw = localStorage.getItem(key);
+    const parsed = Number.parseInt(String(raw || "1"), 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      return 1;
+    }
+    return parsed;
+  },
+
   getDefaultMainTab() {
     const saved = localStorage.getItem("api_aggregator_main_tab");
     if (saved === "site" || saved === "api" || saved === "local") {

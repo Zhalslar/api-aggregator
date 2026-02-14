@@ -1,4 +1,4 @@
-﻿from ..entry import APIEntry
+from ..entry import APIEntry
 from ..log import logger
 from ..model import DataResource
 from .local_data import LocalDataService
@@ -31,14 +31,14 @@ class DataService:
             A `DataResource` with either `saved_text` or `saved_path`, or `None`.
         """
 
-        # ================== 杩滅▼璋冪敤 ==================
+        # ================== Remote call ==================
         try:
             result = await self.remote.get_data(entry)
 
             if not result.ok:
                 raise RuntimeError(result.error or "request not ok")
 
-            # 鏋勯€?DataResource
+            # Build DataResource
             data = DataResource(
                 data_type=entry.data_type,
                 name=entry.name,
@@ -46,15 +46,15 @@ class DataService:
                 binary=result.raw_content,
             )
 
-            # 淇濆瓨鍒版湰鍦帮紙鍐呴儴浼氬～鍏?saved_*锛?
+            # Persist locally (fills saved_* internally)
             saved_data = await self.local.save_data(data)
 
             return saved_data
 
         except Exception as e:
-            logger.warning(f"API璋冪敤澶辫触 [{entry.name}] : {e}")
+            logger.warning(f"API call failed [{entry.name}] : {e}")
 
-        # ================== 鏈湴鍏滃簳 ==================
+        # ================== Local fallback ==================
         if use_local:
             try:
                 local_data = await self.local.get_random_data(
@@ -64,8 +64,8 @@ class DataService:
                 return local_data
 
             except Exception as e:
-                logger.error(f"鏈湴鍏滃簳澶辫触 [{entry.name}] : {e}")
+                logger.error(f"Local fallback failed [{entry.name}] : {e}")
 
-        # ================== 鏈€缁堝け璐?==================
+        # ================== Final failure ==================
         return None
 

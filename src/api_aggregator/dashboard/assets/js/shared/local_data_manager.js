@@ -1,4 +1,4 @@
-﻿function createLocalDataManager(deps) {
+function createLocalDataManager(deps) {
   const {
     t,
     req,
@@ -12,6 +12,9 @@
     formatItems,
     showNoticeModal,
     getLocalCollections,
+    setLocalCollections,
+    getLocalPagination,
+    setLocalPagination,
     getLocalSearchText,
     getLocalPage,
     setLocalPage,
@@ -197,35 +200,39 @@
     const table = document.getElementById("localDataTable");
     if (!table) return;
 
-    const sorted = PageHelpers.getSortedLocalCollections(
-      getLocalCollections(),
-      getSortState().local
-    );
-    const filtered = PageHelpers.filterLocalCollections(sorted, getLocalSearchText());
-    const total = filtered.length;
-    const pagination = PageHelpers.paginateItems(filtered, getLocalPage(), getLocalPageSize());
+    const pageItems = Array.isArray(getLocalCollections()) ? getLocalCollections() : [];
+    const meta = getLocalPagination() || {};
+    const pagination = {
+      page: Math.max(1, Number(meta.page || getLocalPage() || 1)),
+      page_size: meta.page_size ?? getLocalPageSize(),
+      total: Math.max(0, Number(meta.total || pageItems.length || 0)),
+      total_pages: Math.max(1, Number(meta.total_pages || 1)),
+      start: Math.max(0, Number(meta.start || 0)),
+      end: Math.max(0, Number(meta.end || 0)),
+    };
     setLocalPage(pagination.page);
+    localStorage.setItem("api_aggregator_page_local", String(getLocalPage()));
 
     const countNode = document.getElementById("localDataCount");
     if (countNode) {
-      countNode.textContent = formatItems(total);
+      countNode.textContent = formatItems(pagination.total);
     }
 
     renderPager({
       pagerId: "localPagerTop",
       page: getLocalPage(),
-      totalPages: pagination.totalPages,
-      total,
-      start: pagination.startIndex + 1,
-      end: pagination.startIndex + pagination.pageItems.length,
+      totalPages: pagination.total_pages,
+      total: pagination.total,
+      start: pagination.total > 0 ? pagination.start + 1 : 0,
+      end: pagination.total > 0 ? pagination.end : 0,
       onPageChange: "onLocalPageChange",
     });
 
-    const rows = pagination.pageItems
+    const rows = pageItems
       .map(
         (item, index) => `
         <tr>
-          <td>${pagination.startIndex + index + 1}</td>
+          <td>${pagination.start + index + 1}</td>
           <td><code class="name-code">${escapeHtml(textValue(item.name))}</code></td>
           <td>${formatLocalType(item.type)}</td>
           <td>${Number(item.count || 0)}</td>
@@ -272,9 +279,24 @@
 
   async function loadLocalData() {
     try {
-      const data = await req("/api/local-data");
+      const params = new URLSearchParams({
+        page: String(Math.max(1, Number(getLocalPage() || 1))),
+        page_size: String(getLocalPageSize()),
+        search: textValue(getLocalSearchText()).trim(),
+        sort: textValue(getSortState().local || "name_asc"),
+      });
+      const data = await req(`/api/local-data?${params.toString()}`);
       const collections = Array.isArray(data?.collections) ? data.collections : [];
-      deps.setLocalCollections(collections);
+      setLocalCollections(collections);
+      const pagination = data?.pagination && typeof data.pagination === "object" ? data.pagination : {};
+      setLocalPagination({
+        page: Math.max(1, Number(pagination.page || getLocalPage() || 1)),
+        page_size: pagination.page_size ?? getLocalPageSize(),
+        total: Math.max(0, Number(pagination.total || collections.length || 0)),
+        total_pages: Math.max(1, Number(pagination.total_pages || 1)),
+        start: Math.max(0, Number(pagination.start || 0)),
+        end: Math.max(0, Number(pagination.end || 0)),
+      });
       renderLocalData();
     } catch (err) {
       showNoticeModal(err.message || String(err));

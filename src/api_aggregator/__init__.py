@@ -4,7 +4,7 @@ from .data_service import DataService
 from .data_service.local_data import LocalDataError, LocalDataService
 from .data_service.remote_data import RemoteDataService
 from .data_service.request_result import RequestResult
-from .database import JSONDatabase
+from .database import SQLiteDatabase
 from .entry import APIEntry, APIEntryManager, SiteEntry, SiteEntryManager
 from .main import APICoreApp
 from .model import ConfigNode, DataResource, DataType
@@ -15,7 +15,7 @@ __all__ = [
     "__version__",
     "APIConfig",
     "DashboardConfig",
-    "JSONDatabase",
+    "SQLiteDatabase",
     "DashboardServer",
     "DataService",
     "LocalDataError",

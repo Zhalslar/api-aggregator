@@ -25,6 +25,8 @@ class RemoteDataService:
         self.session: ClientSession | None = None
 
         self.default_headers = dict(self.cfg.default_request_headers)
+        # Batch test pacing: sequential per site, parallel across sites.
+        self.batch_site_interval_seconds = 0.2
 
     async def close(self):
         if self.session is not None and not self.session.closed:
@@ -40,7 +42,8 @@ class RemoteDataService:
         site = self.site_mgr.match_entry(entry.url)
         headers = site.get_headers() if site else self.default_headers.copy()
         keys = site.get_keys() if site else None
-        params = entry.updated_params.copy()
+        params = dict(entry.params or {})
+        params.update(dict(entry.updated_params or {}))
         timeout = site.timeout if site else int(self.cfg.default_request_timeout)
 
         if keys:
@@ -85,7 +88,7 @@ class RemoteDataService:
                 return result
 
         except Exception as e:
-            logger.error(f"璇锋眰澶辫触 {url}: {e}")
+            logger.error(f"Request failed {url}: {e}")
             result.error = str(e)
             return result
 
@@ -187,68 +190,84 @@ class RemoteDataService:
             "completed": completed,
         }
 
-        while any(site_to_entries.values()):
-            batch = [
-                entry_list.pop(0)
-                for entry_list in site_to_entries.values()
-                if entry_list
-            ]
-            if not batch:
-                break
+        queue: asyncio.Queue[tuple[APIEntry | None, RequestResult | Exception | None]] = (
+            asyncio.Queue()
+        )
 
-            tasks: list[asyncio.Task[RequestResult]] = []
-            for entry in batch:
-                headers, params, timeout = self._build_request_args(entry)
-                tasks.append(
-                    asyncio.create_task(
-                        self._request(
-                            entry.url,
-                            headers=headers,
-                            params=params,
-                            timeout=timeout,
-                        )
+        async def site_worker(site_entries: list[APIEntry]) -> None:
+            for index, entry in enumerate(site_entries):
+                try:
+                    headers, params, timeout = self._build_request_args(entry)
+                    result = await self._request(
+                        entry.url,
+                        headers=headers,
+                        params=params,
+                        timeout=timeout,
                     )
-                )
+                    await queue.put((entry, result))
+                except Exception as exc:  # defensive, _request normally absorbs errors
+                    await queue.put((entry, exc))
 
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+                has_more = index < len(site_entries) - 1
+                if has_more and self.batch_site_interval_seconds > 0:
+                    await asyncio.sleep(self.batch_site_interval_seconds)
 
-            for entry, result in zip(batch, results):
-                completed += 1
+            await queue.put((None, None))
 
-                if isinstance(result, Exception):
-                    yield {
-                        "event": "progress",
-                        "name": entry.name,
-                        "url": entry.url,
-                        "completed": completed,
-                        "total": total,
-                        "valid": False,
-                        "status": None,
-                        "content_type": "",
-                        "final_url": "",
-                        "reason": str(result),
-                        "preview": "",
-                    }
-                    continue
+        site_workers = [
+            asyncio.create_task(site_worker(list(site_entries)))
+            for site_entries in site_to_entries.values()
+            if site_entries
+        ]
 
-                res = cast(RequestResult, result)
-                is_valid = res.is_valid()
-                if is_valid:
-                    succeeded.add(entry.name)
+        completed_workers = 0
+        total_workers = len(site_workers)
 
+        while completed_workers < total_workers:
+            entry, result = await queue.get()
+            if entry is None:
+                completed_workers += 1
+                continue
+
+            completed += 1
+
+            if isinstance(result, Exception):
                 yield {
                     "event": "progress",
                     "name": entry.name,
                     "url": entry.url,
                     "completed": completed,
                     "total": total,
-                    "valid": is_valid,
-                    "status": res.status,
-                    "content_type": res.content_type or "",
-                    "final_url": res.final_url or "",
-                    "reason": self._build_test_reason(res),
-                    "preview": self._build_result_preview(res),
+                    "valid": False,
+                    "status": None,
+                    "content_type": "",
+                    "final_url": "",
+                    "reason": str(result),
+                    "preview": "",
                 }
+                continue
+
+            res = cast(RequestResult, result)
+            is_valid = res.is_valid()
+            if is_valid:
+                succeeded.add(entry.name)
+
+            yield {
+                "event": "progress",
+                "name": entry.name,
+                "url": entry.url,
+                "completed": completed,
+                "total": total,
+                "valid": is_valid,
+                "status": res.status,
+                "content_type": res.content_type or "",
+                "final_url": res.final_url or "",
+                "reason": self._build_test_reason(res),
+                "preview": self._build_result_preview(res),
+            }
+
+        if site_workers:
+            await asyncio.gather(*site_workers, return_exceptions=True)
 
         success_names = list(succeeded)
         failed_names = [entry.name for entry in entries if entry.name not in succeeded]

@@ -27,10 +27,22 @@ function createUiStateManager(deps) {
     setMainTab,
     getMainTab,
     loadPool,
-    renderSites,
-    renderApis,
-    renderLocalData,
+    loadLocalData,
+    refreshPoolView,
   } = deps;
+
+  const rerenderPoolView =
+    typeof refreshPoolView === "function"
+      ? refreshPoolView
+      : () => {
+          void loadPool;
+        };
+
+  function persistPageState() {
+    localStorage.setItem("api_aggregator_page_site", String(getSitePage()));
+    localStorage.setItem("api_aggregator_page_api", String(getApiPage()));
+    localStorage.setItem("api_aggregator_page_local", String(getLocalPage()));
+  }
 
   function persistSortState() {
     localStorage.setItem("api_aggregator_sort", JSON.stringify(getSortState()));
@@ -39,22 +51,25 @@ function createUiStateManager(deps) {
   function onSiteSortChange(rule) {
     setSortState({ ...getSortState(), site: rule || "name_asc" });
     setSitePage(1);
+    persistPageState();
     persistSortState();
-    loadPool();
+    rerenderPoolView();
   }
 
   function onApiSortChange(rule) {
     setSortState({ ...getSortState(), api: rule || "name_asc" });
     setApiPage(1);
+    persistPageState();
     persistSortState();
-    loadPool();
+    rerenderPoolView();
   }
 
   function onLocalSortChange(rule) {
     setSortState({ ...getSortState(), local: rule || "name_asc" });
     setLocalPage(1);
+    persistPageState();
     persistSortState();
-    renderLocalData();
+    loadLocalData();
   }
 
   function onSiteHeaderSort(field) {
@@ -84,40 +99,46 @@ function createUiStateManager(deps) {
   function onSiteSearchChange(value) {
     setSiteSearchText(textValue(value).trim());
     setSitePage(1);
-    renderSites();
+    persistPageState();
+    rerenderPoolView();
   }
 
   function onApiSearchChange(value) {
     setApiSearchText(textValue(value).trim());
     setApiPage(1);
-    renderApis();
+    persistPageState();
+    rerenderPoolView();
   }
 
   function onLocalSearchChange(value) {
     setLocalSearchText(textValue(value).trim());
     setLocalPage(1);
-    renderLocalData();
+    persistPageState();
+    loadLocalData();
   }
 
   function onSitePageChange(page) {
     const nextPage = Number(page || 1);
     if (!Number.isFinite(nextPage) || nextPage < 1) return;
     setSitePage(nextPage);
-    renderSites();
+    persistPageState();
+    rerenderPoolView();
   }
 
   function onApiPageChange(page) {
     const nextPage = Number(page || 1);
     if (!Number.isFinite(nextPage) || nextPage < 1) return;
     setApiPage(nextPage);
-    renderApis();
+    persistPageState();
+    rerenderPoolView();
   }
 
   function onLocalPageChange(page) {
     const nextPage = Number(page || 1);
     if (!Number.isFinite(nextPage) || nextPage < 1) return;
     setLocalPage(nextPage);
-    renderLocalData();
+    persistPageState();
+    loadLocalData();
   }
 
   function onSitePageSizeChange(value) {
@@ -130,8 +151,9 @@ function createUiStateManager(deps) {
       setSitePageSize(nextSize);
     }
     setSitePage(1);
+    persistPageState();
     localStorage.setItem("api_aggregator_page_size_site", String(getSitePageSize()));
-    renderSites();
+    rerenderPoolView();
   }
 
   function onApiPageSizeChange(value) {
@@ -144,8 +166,9 @@ function createUiStateManager(deps) {
       setApiPageSize(nextSize);
     }
     setApiPage(1);
+    persistPageState();
     localStorage.setItem("api_aggregator_page_size_api", String(getApiPageSize()));
-    renderApis();
+    rerenderPoolView();
   }
 
   function onLocalPageSizeChange(value) {
@@ -158,8 +181,9 @@ function createUiStateManager(deps) {
       setLocalPageSize(nextSize);
     }
     setLocalPage(1);
+    persistPageState();
     localStorage.setItem("api_aggregator_page_size_local", String(getLocalPageSize()));
-    renderLocalData();
+    loadLocalData();
   }
 
   function switchMainTab(tab) {

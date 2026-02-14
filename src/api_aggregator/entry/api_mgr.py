@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import APIConfig
-from ..database import JSONDatabase
+from ..database import SQLiteDatabase
 from ..log import logger
 from ..model import DataType
 from .api_entry import APIEntry
@@ -17,17 +17,16 @@ from .api_entry import APIEntry
 class APIEntryManager:
     """Manage API entries and persistence mapping."""
 
-    def __init__(self, config: APIConfig, db: JSONDatabase | None = None):
+    def __init__(self, config: APIConfig, db: SQLiteDatabase | None = None):
         self.cfg = config
-        # Keep backward compatibility for callers that only pass config.
-        self.db = db or JSONDatabase(self.cfg.data_dir)
+        self.db = db or SQLiteDatabase(self.cfg)
         self.builtin_file = self.cfg.builtin_apis_file
         self.pool = self.db.api_pool
         self.entries: list[APIEntry] = []
         self.on_changed: list[Callable[[], None]] = []
 
     def _save_to_database(self) -> None:
-        self.db.save_to_database()
+        self.db.save_api_pool()
 
     async def initialize(self) -> None:
         # Support restart: rebuild in-memory entries from current pool state.
@@ -38,15 +37,24 @@ class APIEntryManager:
             logger.info("load builtin api entries: %s", self.builtin_file)
             for item in builtin_entries:
                 try:
-                    self.add_entry(data=item)
+                    self.add_entry(data=item, save=False, emit_changed=False)
                 except Exception as exc:
                     logger.error(
                         "load builtin api failed: %s -> %s", item.get("name"), exc
                     )
+            self._save_to_database()
             return
 
-        for item in self.pool:
-            self.entries.append(APIEntry(item))
+        stored_entries = [dict(item) for item in self.pool if isinstance(item, dict)]
+        self.pool.clear()
+        for item in stored_entries:
+            try:
+                self.add_entry(data=item, save=False, emit_changed=False)
+            except Exception as exc:
+                logger.error(
+                    "load api from database failed: %s -> %s", item.get("name"), exc
+                )
+        self._save_to_database()
 
     @staticmethod
     def load_entry_file(file: Path) -> list[dict[str, Any]]:
@@ -190,6 +198,8 @@ class APIEntryManager:
         *,
         name: str | None = None,
         url: str | None = None,
+        save: bool = True,
+        emit_changed: bool = True,
     ) -> APIEntry:
         payload = dict(data or {})
         if name is not None:
@@ -216,13 +226,15 @@ class APIEntryManager:
             ),
             "cron": payload.get("cron") or "",
             "valid": self._to_bool(payload.get("valid"), default=True),
+            "site": str(payload.get("site") or "").strip(),
         }
 
         entry = APIEntry(full_data)
         self.entries.append(entry)
         self.pool.append(full_data)
-        self._save_to_database()
-        if entry.enabled_cron:
+        if save:
+            self._save_to_database()
+        if emit_changed and entry.enabled_cron:
             self._emit_changed()
         return entry
 
@@ -303,22 +315,22 @@ class APIEntryManager:
             return None
         data: dict[str, Any] = {}
         field_map = {
-            "api名称": "name",
-            "api地址": "url",
-            "api类型": "type",
-            "所需参数": "params",
-            "解析路径": "parse",
-            "是否启用": "enabled",
-            "触发范围": "scope",
-            "正则触发": "keywords",
-            "定时触发": "cron",
-            "是否有效": "valid",
+            "api name": "name",
+            "api url": "url",
+            "api type": "type",
+            "params": "params",
+            "parse path": "parse",
+            "enabled": "enabled",
+            "scope": "scope",
+            "regex triggers": "keywords",
+            "cron trigger": "cron",
+            "valid": "valid",
         }
         for raw_line in text.strip().splitlines():
             line = raw_line.strip()
-            if not line or "：" not in line:
+            if not line or ":" not in line:
                 continue
-            key, value = line.split("：", 1)
+            key, value = line.split(":", 1)
             field = field_map.get(key.strip())
             if not field:
                 continue

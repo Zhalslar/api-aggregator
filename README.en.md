@@ -1,4 +1,4 @@
-﻿# api-aggregator
+# api-aggregator
 
 <p align="center">
   <img src="./src/api_aggregator/dashboard/assets/images/logo.png" alt="api-aggregator logo" width="160" />
@@ -16,7 +16,6 @@
 
 A lightweight API aggregation core runtime for API/site registry, fetching, local persistence, scheduling, and dashboard management.
 
-Repository: `https://github.com/Zhalslar/api-aggregator`
 
 ## 📚 Table of Contents
 

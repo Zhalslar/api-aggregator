@@ -1,7 +1,7 @@
 const I18N = (window.I18N = {
   en: {
-    page_title: "APIs Plugin WebUI",
-    header_title: "API Aggregation Plugin Panel",
+    page_title: "API聚合器面板",
+    header_title: "API聚合器面板",
     header_hint: "",
     repo_button: "Repository",
     author_home_button: "Author Home",
@@ -161,11 +161,13 @@ const I18N = (window.I18N = {
     page_next: "Next",
     page_last: "Last Page",
     key_name: "Key",
-    value_name: "Value"
+    value_name: "Value",
+    api_site_filter: "Sites",
+    all_sites: "All"
   },
   zh: {
-    page_title: "APIs 插件面板",
-    header_title: "API聚合插件面板",
+    page_title: "API聚合器面板",
+    header_title: "API聚合器面板",
     header_hint: "",
     repo_button: "仓库链接",
     author_home_button: "作者主页",
@@ -248,10 +250,10 @@ const I18N = (window.I18N = {
     test_done_summary: "测试完成。有效: {success}，无效: {fail}",
     test_failed: "测试失败",
     test_aborted: "测试已停止",
-    test_repeat_start: "多次测试",
-    test_repeat_stop: "停止多测",
-    test_repeat_pause: "暂停测试",
-    test_repeat_resume: "继续测试",
+    test_repeat_start: "测试",
+    test_repeat_stop: "停止",
+    test_repeat_pause: "暂停",
+    test_repeat_resume: "继续",
     test_repeat_paused: "测试已暂停",
     test_repeat_interval: "间隔(秒)",
     test_repeat_times: "次数",
@@ -325,6 +327,8 @@ const I18N = (window.I18N = {
     page_next: "下一页",
     page_last: "尾页",
     key_name: "键",
-    value_name: "值"
+    value_name: "值",
+    api_site_filter: "站点",
+    all_sites: "全部"
   }
 });

@@ -5,7 +5,7 @@ from ..model import ConfigNode
 
 
 class SiteEntry(ConfigNode):
-    """站点条目"""
+    """Site entry."""
 
     name: str
     url: str

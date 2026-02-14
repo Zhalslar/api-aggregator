@@ -14,7 +14,7 @@ from aiohttp import web
 from ..config import APIConfig
 from ..data_service.local_data import LocalDataService
 from ..data_service.remote_data import RemoteDataService
-from ..database import JSONDatabase
+from ..database import SQLiteDatabase
 from ..entry import APIEntry, APIEntryManager, SiteEntry, SiteEntryManager
 from ..log import logger
 from ..model import DataResource, DataType
@@ -40,7 +40,7 @@ class DashboardServer:
     def __init__(
         self,
         config: APIConfig,
-        db: JSONDatabase,
+        db: SQLiteDatabase,
         remote: RemoteDataService,
         local: LocalDataService,
         api_mgr: APIEntryManager,
@@ -275,6 +275,16 @@ class DashboardServer:
             status=status,
         )
 
+    @staticmethod
+    def _to_int(value: Any, *, default: int, minimum: int | None = None) -> int:
+        try:
+            parsed = int(str(value).strip())
+        except Exception:
+            parsed = default
+        if minimum is not None and parsed < minimum:
+            return default
+        return parsed
+
     async def _read_json(self, request: web.Request) -> dict[str, Any]:
         try:
             data = await request.json()
@@ -339,10 +349,16 @@ class DashboardServer:
 
     async def get_pool(self, _: web.Request) -> web.Response:
         """GET /api/pool : return current site/API pools."""
+        self._sync_all_api_sites()
+        apis = [entry.to_dict() for entry in self.api_mgr.list_entries()]
+        sites = self._attach_site_api_counts(
+            [entry._data for entry in self.site_mgr.list_entries()],
+            apis,
+        )
         return self._ok(
             {
-                "sites": [entry._data for entry in self.site_mgr.list_entries()],
-                "apis": [entry.to_dict() for entry in self.api_mgr.list_entries()],
+                "sites": sites,
+                "apis": apis,
             }
         )
 
@@ -350,12 +366,52 @@ class DashboardServer:
         """GET /api/pool/sorted : return pools sorted by query rules."""
         site_sort = request.query.get("site_sort", "name_asc")
         api_sort = request.query.get("api_sort", "name_asc")
-        sites = [entry._data for entry in self.site_mgr.list_entries()]
-        apis = [entry.to_dict() for entry in self.api_mgr.list_entries()]
+        site_search = request.query.get("site_search", "")
+        api_search = request.query.get("api_search", "")
+        site_page = self._to_int(request.query.get("site_page", "1"), default=1, minimum=1)
+        api_page = self._to_int(request.query.get("api_page", "1"), default=1, minimum=1)
+        site_page_size = request.query.get("site_page_size", "all")
+        api_page_size = request.query.get("api_page_size", "all")
+        raw_api_sites = request.query.getall("api_site", [])
+        csv_api_sites = request.query.get("api_sites", "")
+        if csv_api_sites:
+            raw_api_sites.extend(
+                [item.strip() for item in csv_api_sites.split(",") if item.strip()]
+            )
+
+        self._sync_all_api_sites()
+        site_page_data = self.db.query_site_pool(
+            rule=site_sort,
+            query=site_search,
+            page=site_page,
+            page_size=site_page_size,
+        )
+        api_page_data = self.db.query_api_pool(
+            rule=api_sort,
+            query=api_search,
+            page=api_page,
+            page_size=api_page_size,
+            site_names=raw_api_sites or None,
+        )
         return self._ok(
             {
-                "sites": self._sort_sites(sites, site_sort),
-                "apis": self._sort_apis(apis, api_sort),
+                "sites": site_page_data["items"],
+                "apis": api_page_data["items"],
+                "site_filter_options": sorted(
+                    {
+                        str(item.get("name", "")).strip()
+                        for item in self.db.site_pool
+                        if str(item.get("name", "")).strip()
+                    }
+                ),
+                "site_pagination": {
+                    k: site_page_data[k]
+                    for k in ("page", "page_size", "total", "total_pages", "start", "end")
+                },
+                "api_pagination": {
+                    k: api_page_data[k]
+                    for k in ("page", "page_size", "total", "total_pages", "start", "end")
+                },
             }
         )
 
@@ -364,6 +420,7 @@ class DashboardServer:
         try:
             payload = await self._read_json(request)
             entry = self.site_mgr.add_entry(data=payload)
+            self._sync_all_api_sites()
             return self._ok(entry._data, "site created")
         except Exception as exc:
             return self._error(str(exc))
@@ -402,7 +459,8 @@ class DashboardServer:
 
             self.db.site_pool[idx_cfg] = data
             self.site_mgr.entries[idx_entry] = SiteEntry(data)
-            self.db.save_to_database()
+            self.db.save_site_pool()
+            self._sync_all_api_sites()
             return self._ok(data, "site updated")
         except Exception as exc:
             return self._error(str(exc))
@@ -417,14 +475,16 @@ class DashboardServer:
             return self._error(f"site not found: {name}", status=404)
         self.db.site_pool.pop(idx_cfg)
         self.site_mgr.entries.pop(idx_entry)
-        self.db.save_to_database()
+        self.db.save_site_pool()
+        self._sync_all_api_sites()
         return self._ok(message="site deleted")
 
     async def create_api(self, request: web.Request) -> web.Response:
         """POST /api/api : create one API entry from JSON body."""
         try:
             payload = await self._read_json(request)
-            entry = self.api_mgr.add_entry(data=payload)
+            normalized = self._normalize_api_payload(payload, require_unique_name=False)
+            entry = self.api_mgr.add_entry(data=normalized)
             return self._ok(entry.to_dict(), "api created")
         except Exception as exc:
             return self._error(str(exc))
@@ -464,12 +524,13 @@ class DashboardServer:
             data["keywords"] = data.get("keywords", [])
             data["cron"] = str(data.get("cron", ""))
             data["valid"] = bool(data.get("valid", True))
+            data["site"] = self._resolve_api_site_name(data["url"])
             data["template"] = data.get("template", "default")
             data["__template_key"] = data.get("__template_key", data["template"])
 
             self.db.api_pool[idx_cfg] = data
             self.api_mgr.entries[idx_entry] = APIEntry(data)
-            self.db.save_to_database()
+            self.db.save_api_pool()
             return self._ok(data, "api updated")
         except Exception as exc:
             return self._error(str(exc))
@@ -512,6 +573,15 @@ class DashboardServer:
                 await response.write(line.encode("utf-8"))
         except ConnectionResetError:
             logger.info("[api_aggregator] test stream client disconnected")
+        except Exception as exc:
+            logger.exception("[api_aggregator] test stream failed: %s", exc)
+            try:
+                line = (
+                    f"{json.dumps({'event': 'error', 'message': str(exc)}, ensure_ascii=False)}\n"
+                )
+                await response.write(line.encode("utf-8"))
+            except ConnectionResetError:
+                logger.info("[api_aggregator] test stream client disconnected")
         finally:
             if not response.prepared:
                 return response
@@ -552,6 +622,13 @@ class DashboardServer:
                     )
                     saved = await self.local.save_data(data)
                     detail["is_duplicate"] = bool(saved.is_duplicate)
+                    if detail["is_duplicate"]:
+                        detail["duplicate_skipped"] = True
+                        note = "duplicate data detected: skipped saving and reused local data"
+                        reason_text = str(detail.get("reason", "")).strip()
+                        detail["reason"] = (
+                            f"{reason_text} | {note}" if reason_text else note
+                        )
                     if saved.saved_text is not None:
                         detail["saved_type"] = "text"
                         detail["saved_text"] = saved.saved_text
@@ -597,11 +674,34 @@ class DashboardServer:
 
         return web.FileResponse(path=target)
 
-    async def get_local_data(self, _: web.Request) -> web.Response:
+    async def get_local_data(self, request: web.Request) -> web.Response:
         """GET /api/local-data : list local data collections."""
         try:
-            collections = self.local.list_collections()
-            return self._ok({"collections": collections})
+            # keep old behavior by default (`all`) and support paged query when provided
+            page = self._to_int(request.query.get("page", "1"), default=1, minimum=1)
+            page_size_raw = request.query.get("page_size", "all").strip().lower()
+            page_size: int | str
+            if page_size_raw == "all":
+                page_size = "all"
+            else:
+                page_size = self._to_int(page_size_raw, default=20, minimum=1)
+            query = request.query.get("search", "")
+            sort_rule = request.query.get("sort", "name_asc")
+            paged = self.local.list_collections_page(
+                page=page,
+                page_size=page_size,
+                query=query,
+                sort_rule=sort_rule,
+            )
+            return self._ok(
+                {
+                    "collections": paged["items"],
+                    "pagination": {
+                        k: paged[k]
+                        for k in ("page", "page_size", "total", "total_pages", "start", "end")
+                    },
+                }
+            )
         except Exception as exc:
             return self._error(str(exc))
 
@@ -884,6 +984,7 @@ class DashboardServer:
         data["keywords"] = data.get("keywords", [])
         data["cron"] = str(data.get("cron", ""))
         data["valid"] = bool(data.get("valid", True))
+        data["site"] = self._resolve_api_site_name(data["url"])
         data["template"] = data.get("template", "default")
         data["__template_key"] = data.get("__template_key", data["template"])
         return data
@@ -905,6 +1006,22 @@ class DashboardServer:
             return sorted(data, key=lambda x: int(x.get("timeout", 60)))
         if rule == "timeout_desc":
             return sorted(data, key=lambda x: int(x.get("timeout", 60)), reverse=True)
+        if rule == "api_count_asc":
+            return sorted(
+                data,
+                key=lambda x: (
+                    int(x.get("api_count", 0)),
+                    str(x.get("name", "")).lower(),
+                ),
+            )
+        if rule == "api_count_desc":
+            return sorted(
+                data,
+                key=lambda x: (
+                    -int(x.get("api_count", 0)),
+                    str(x.get("name", "")).lower(),
+                ),
+            )
         if rule == "enabled_first":
             return sorted(
                 data,
@@ -971,3 +1088,45 @@ class DashboardServer:
                 ),
             )
         return sorted(data, key=lambda x: str(x.get("name", "")).lower())
+
+    def _resolve_api_site_name(self, url: str) -> str:
+        full_url = str(url or "").strip()
+        if not full_url:
+            return ""
+        site = self.site_mgr.match_entry(full_url, only_enabled=False)
+        return str(site.name) if site else ""
+
+    def _sync_all_api_sites(self) -> bool:
+        changed = False
+        for index, api_cfg in enumerate(self.db.api_pool):
+            if not isinstance(api_cfg, dict):
+                continue
+            next_site = self._resolve_api_site_name(str(api_cfg.get("url", "")))
+            if str(api_cfg.get("site", "")).strip() == next_site:
+                continue
+            api_cfg["site"] = next_site
+            if index < len(self.api_mgr.entries):
+                self.api_mgr.entries[index] = APIEntry(dict(api_cfg))
+            changed = True
+        if changed:
+            self.db.save_api_pool()
+        return changed
+
+    @staticmethod
+    def _attach_site_api_counts(
+        sites: list[dict[str, Any]], apis: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        count_by_site: dict[str, int] = {}
+        for api in apis:
+            site_name = str(api.get("site", "")).strip()
+            if not site_name:
+                continue
+            count_by_site[site_name] = count_by_site.get(site_name, 0) + 1
+
+        result: list[dict[str, Any]] = []
+        for site in sites:
+            row = dict(site)
+            site_name = str(row.get("name", "")).strip()
+            row["api_count"] = int(count_by_site.get(site_name, 0))
+            result.append(row)
+        return result

@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 
 @dataclass
 class RequestResult:
-    """请求结果对象"""
+    """Request result object."""
 
     status: int | None = None
     raw_text: str | None = None
@@ -19,7 +19,7 @@ class RequestResult:
     final_url: str | None = None
 
     # --------------------------
-    # 基础属性
+    # Basic properties
     # --------------------------
 
     @property
@@ -43,12 +43,18 @@ class RequestResult:
         return self.raw_content
 
     # --------------------------
-    # 数据处理逻辑
+    # Data processing logic
     # --------------------------
 
     def parse_nested(self, parse_rule: str):
-        """JSON嵌套解析"""
+        """Parse nested value from JSON payload."""
         if not self.raw_text:
+            return self
+        raw = self.raw_text.strip()
+        if not (
+            (raw.startswith("{") and raw.endswith("}"))
+            or (raw.startswith("[") and raw.endswith("]"))
+        ):
             return self
 
         try:
@@ -66,14 +72,14 @@ class RequestResult:
         return self
 
     def extract_html_text(self):
-        """HTML纯文本提取"""
+        """Extract plain text from HTML."""
         if self.raw_text and self.raw_text.strip().startswith("<!DOCTYPE html>"):
             soup = BeautifulSoup(self.raw_text, "html.parser")
             self.raw_text = soup.get_text(strip=True)
         return self
 
     def extract_urls(self, *, unique: bool = True) -> list[str]:
-        """提取URL"""
+        """Extract URLs from response text."""
         if not self.raw_text:
             return []
 
@@ -101,21 +107,21 @@ class RequestResult:
 
     def dict_to_string(self, input_dict) -> str:
         """
-        将字典转换为指定格式的字符串，支持嵌套字典。
-        每一级缩进增加两个空格，直到解析到没有字典嵌套为止。
+        Convert a dict into a formatted string with nested support.
+        Each nested level increases indentation by two spaces.
         """
 
         def recursive_parse(d, level):
             result = ""
-            indent = " " * (level * 2)  # 当前层级的缩进
+            indent = " " * (level * 2)  # indentation for current level
             for key, value in d.items():
-                if isinstance(value, dict):  # 如果值是字典，则递归处理
+                if isinstance(value, dict):  # recurse for nested dicts
                     result += f"{indent}{key}:\n"
-                    result += recursive_parse(value, level + 1)  # 增加缩进
+                    result += recursive_parse(value, level + 1)
                 elif isinstance(value, list):
                     for item in value:
                         result += "\n\n"
-                        result += recursive_parse(item, level)  # 增加缩进
+                        result += recursive_parse(item, level)
                 else:
                     result += f"{indent}{key}: {value}\n"
             return result.strip()
@@ -154,34 +160,34 @@ class RequestResult:
 
     def is_valid(self) -> bool:
         """
-        判断该请求结果是否“业务有效”
+        Determine whether this request result is business-valid.
 
-        规则：
-        1. 网络必须成功 (ok)
-        2. HTTP status 必须是 2xx
-        3. 二进制数据：长度 > 0 即认为有效
-        4. JSON：
-            - 可正常解析
-            - 若存在 code 且不在 (0, 200)，判定无效
-            - 若存在明显错误字段，判定无效
-        5. HTML：
-            - 不包含常见错误关键词
-        6. 普通文本：
-            - 非空即可
+        Rules:
+        1. Network request must succeed (ok).
+        2. HTTP status must be 2xx.
+        3. Binary data is valid when length > 0.
+        4. JSON:
+            - Must be parseable.
+            - If `code` exists and not in (0, 200), mark invalid.
+            - If obvious error fields exist, mark invalid.
+        5. HTML:
+            - Must not contain common error keywords.
+        6. Plain text:
+            - Non-empty is considered valid.
         """
 
-        # 网络层判断
+        # Network-level checks
         if not self.ok:
             return False
 
         if not self.status or not (200 <= self.status < 300):
             return False
 
-        # 二进制数据
+        # Binary data
         if self.is_binary:
             return bool(self.raw_content and len(self.raw_content) > 0)
 
-        # 文本数据必须存在
+        # Text data must exist
         if not self.raw_text:
             return False
 
@@ -191,7 +197,7 @@ class RequestResult:
 
         content_type = (self.content_type or "").lower()
 
-        # JSON 判断
+        # JSON checks
         if (
             "application/json" in content_type
             or (text.startswith("{") and text.endswith("}"))
@@ -200,15 +206,17 @@ class RequestResult:
             try:
                 parsed = json.loads(text)
             except Exception:
-                return False
+                # Some APIs return plain text with JSON content-type.
+                # Treat non-empty text as valid in this fallback path.
+                return True
 
             if isinstance(parsed, dict):
-                # ---- 常见 code 字段判断 ----
+                # ---- common code field checks ----
                 code = parsed.get("code")
                 if isinstance(code, int) and code not in (0, 200):
                     return False
 
-                # ---- 常见错误字段判断 ----
+                # ---- common error-field checks ----
                 for key in ("error", "err", "message", "msg"):
                     val = parsed.get(key)
                     if isinstance(val, str):
@@ -228,7 +236,7 @@ class RequestResult:
 
             return True
 
-        # HTML 判断
+        # HTML checks
         if "text/html" in content_type or "<html" in text.lower():
             lowered = text.lower()
 
@@ -250,5 +258,5 @@ class RequestResult:
 
             return True
 
-        # 普通文本
+        # Plain text
         return True

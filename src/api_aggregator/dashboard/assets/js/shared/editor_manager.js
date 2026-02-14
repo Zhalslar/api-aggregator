@@ -16,6 +16,12 @@ function createEditorManager(deps) {
     loadPool,
     showNoticeModal,
     testEditorPayloadAndRender,
+    getSites,
+    setSites,
+    renderSites,
+    getApis,
+    setApis,
+    renderApis,
     setEditorState,
     getEditorState,
     getSiteTemplate,
@@ -257,27 +263,60 @@ function createEditorManager(deps) {
       const kind = st.kind;
       const oldName = st.originalName;
       const payload = kind === "site" ? buildSitePayload() : buildApiPayload();
+      if (!oldName && payload.enabled === undefined) {
+        payload.enabled = true;
+      }
+      let saved = null;
       if (kind === "site") {
         if (oldName) {
-          await req(`/api/site/${encodeURIComponent(oldName)}`, {
+          saved = await req(`/api/site/${encodeURIComponent(oldName)}`, {
             method: "PUT",
             body: JSON.stringify(payload),
           });
         } else {
-          await req("/api/site", { method: "POST", body: JSON.stringify(payload) });
+          saved = await req("/api/site", { method: "POST", body: JSON.stringify(payload) });
         }
       } else if (kind === "api") {
         if (oldName) {
-          await req(`/api/api/${encodeURIComponent(oldName)}`, {
+          saved = await req(`/api/api/${encodeURIComponent(oldName)}`, {
             method: "PUT",
             body: JSON.stringify(payload),
           });
         } else {
-          await req("/api/api", { method: "POST", body: JSON.stringify(payload) });
+          saved = await req("/api/api", { method: "POST", body: JSON.stringify(payload) });
         }
       }
+
+      if (kind === "site" && saved) {
+        const prev = Array.isArray(getSites()) ? getSites() : [];
+        const index = oldName
+          ? prev.findIndex((item) => textValue(item?.name) === oldName)
+          : -1;
+        const next = [...prev];
+        if (index >= 0) {
+          next[index] = { ...next[index], ...saved };
+        } else {
+          next.push(saved);
+        }
+        setSites(next);
+        renderSites();
+      } else if (kind === "api" && saved) {
+        const prev = Array.isArray(getApis()) ? getApis() : [];
+        const index = oldName
+          ? prev.findIndex((item) => textValue(item?.name) === oldName)
+          : -1;
+        const next = [...prev];
+        if (index >= 0) {
+          next[index] = { ...next[index], ...saved };
+        } else {
+          next.push(saved);
+        }
+        setApis(next);
+        renderApis();
+      }
+
       closeEditor();
-      await loadPool();
+      void loadPool({ includeLocalData: false, silent: true });
     } catch (err) {
       showNoticeModal(err.message || String(err));
     }

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import APIConfig
-from ..database import JSONDatabase
+from ..database import SQLiteDatabase
 from ..log import logger
 from .site_entry import SiteEntry
 
@@ -13,15 +13,15 @@ from .site_entry import SiteEntry
 class SiteEntryManager:
     """Manage site entries and persistence mapping."""
 
-    def __init__(self, config: APIConfig, db: JSONDatabase):
+    def __init__(self, config: APIConfig, db: SQLiteDatabase | None = None):
         self.cfg = config
-        self.db = db
+        self.db = db or SQLiteDatabase(self.cfg)
         self.builtin_file = self.cfg.builtin_sites_file
         self.pool = self.db.site_pool
         self.entries: list[SiteEntry] = []
 
     def _save_to_database(self) -> None:
-        self.db.save_to_database()
+        self.db.save_site_pool()
 
     async def initialize(self) -> None:
         # Support restart: rebuild in-memory entries from current pool state.
@@ -40,8 +40,16 @@ class SiteEntryManager:
             self._save_to_database()
             return
 
-        for item in self.pool:
-            self.entries.append(SiteEntry(item))
+        stored_entries = [dict(item) for item in self.pool if isinstance(item, dict)]
+        self.pool.clear()
+        for item in stored_entries:
+            try:
+                self.add_entry(data=item, save=False)
+            except Exception as exc:
+                logger.error(
+                    "load site from database failed: %s -> %s", item.get("name"), exc
+                )
+        self._save_to_database()
 
     @staticmethod
     def load_entry_file(file: Path) -> list[dict[str, Any]]:

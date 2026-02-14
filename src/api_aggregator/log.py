@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import logging
+import sys
 
 LOGGER_NAME = "api_aggregator"
 
@@ -43,10 +45,19 @@ class _ColorFormatter(logging.Formatter):
 
 def setup_default_logging(level: int = logging.INFO) -> None:
     root = logging.getLogger()
+    for stream in (sys.stdout, sys.stderr):
+        if not isinstance(stream, io.TextIOWrapper):
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            # Fallback silently if stream doesn't allow reconfiguration.
+            pass
     if root.handlers:
         return
     fmt = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-    handler = logging.StreamHandler()
+    stream = sys.stderr
+    handler = logging.StreamHandler(stream)
     use_color = bool(getattr(handler.stream, "isatty", lambda: False)())
     handler.setFormatter(_ColorFormatter(fmt=fmt, use_color=use_color))
     root.setLevel(level)

@@ -8,13 +8,13 @@ from typing import Any, Union, get_args, get_origin, get_type_hints
 
 class ConfigNode:
     """
-    配置节点, 把 dict 变成强类型对象。
+    Config node that wraps a dict into a typed object.
 
-    规则：
-    - schema 来自子类类型注解
-    - 声明字段：读写，写回底层 dict
-    - 未声明字段和下划线字段：仅挂载属性，不写回
-    - 支持 ConfigNode 多层嵌套（lazy + cache）
+    Rules:
+    - schema comes from subclass type hints
+    - declared fields: readable/writable, writes back to underlying dict
+    - undeclared fields and underscore fields: attached only, not persisted
+    - supports multi-level ConfigNode nesting (lazy + cache)
     """
 
     _SCHEMA_CACHE: dict[type, dict[str, type]] = {}
@@ -49,7 +49,7 @@ class ConfigNode:
                 continue
             if self._is_optional(tp):
                 continue
-            print(f"[config:{self.__class__.__name__}] 缺少字段: {key}")
+            print(f"[config:{self.__class__.__name__}] missing field: {key}")
 
     def __getattr__(self, key: str) -> Any:
         if key in self._fields():
@@ -62,7 +62,7 @@ class ConfigNode:
                     if not isinstance(value, MutableMapping):
                         raise TypeError(
                             f"[config:{self.__class__.__name__}] "
-                            f"字段 {key} 期望 dict，实际是 {type(value).__name__}"
+                            f"field {key} expected dict, got {type(value).__name__}"
                         )
                     children[key] = tp(value)
                 return children[key]
@@ -82,7 +82,7 @@ class ConfigNode:
 
     def raw_data(self) -> Mapping[str, Any]:
         """
-        底层配置 dict 的只读视图
+        Read-only view of the underlying config dict.
         """
         return MappingProxyType(self._data)
 
@@ -95,57 +95,57 @@ class DataType(str, Enum):
     AUDIO = "audio"
 
     # ===============================
-    # 基础增强
+    # Basic helpers
     # ===============================
 
     @classmethod
     def from_str(cls, value: str) -> "DataType":
-        """安全从字符串转换为枚举"""
+        """Safely convert string to enum."""
         try:
             return cls(value.lower())
         except ValueError:
-            raise ValueError(f"不支持的数据类型: {value}")
+            raise ValueError(f"Unsupported data type: {value}")
 
     @classmethod
     def values(cls) -> list[str]:
-        """返回所有字符串值"""
+        """Return all string values."""
         return [item.value for item in cls]
 
     @classmethod
     def is_valid(cls, value: str) -> bool:
-        """判断字符串是否合法"""
+        """Check whether the string value is valid."""
         return value.lower() in cls.values()
 
     # ===============================
-    # 业务相关增强
+    # Business helpers
     # ===============================
     @property
     def is_text(self) -> bool:
-        """是否为文本类型"""
+        """Whether it is text type."""
         return self == DataType.TEXT
 
     @property
     def is_image(self) -> bool:
-        """是否为图片类型"""
+        """Whether it is image type."""
         return self == DataType.IMAGE
 
     @property
     def is_video(self) -> bool:
-        """是否为视频类型"""
+        """Whether it is video type."""
         return self == DataType.VIDEO
 
     @property
     def is_audio(self) -> bool:
-        """是否为音频类型"""
+        """Whether it is audio type."""
         return self == DataType.AUDIO
 
     @property
     def is_binary(self) -> bool:
-        """是否为二进制类型"""
+        """Whether it is a binary type."""
         return self in {DataType.IMAGE, DataType.VIDEO, DataType.AUDIO}
 
     def get_default_ext(self) -> str:
-        """返回默认文件扩展名"""
+        """Return default file extension."""
         return {
             DataType.TEXT: ".json",
             DataType.IMAGE: ".jpg",
@@ -154,22 +154,22 @@ class DataType(str, Enum):
         }[self]
 
     def __str__(self) -> str:
-        """打印时更友好"""
+        """User-friendly display."""
         return self.value
 
 
 @dataclass
 class DataResource:
-    """通用数据资源"""
+    """Generic data resource."""
 
     data_type: DataType
     name: str
 
-    # 输入数据
+    # Input data
     text: str | None = None
     binary: bytes | None = None
 
-    # 存储结果
+    # Persisted results
     saved_text: str | None = None
     saved_path: Path | None = None
     is_duplicate: bool = False
@@ -183,20 +183,18 @@ class DataResource:
         return self.saved_path or self.binary
 
     def validate_for_save(self) -> None:
-        """保存前校验"""
+        """Validate before saving."""
         if self.data_type.is_text and not self.text:
-            raise ValueError("文本类型必须提供 text")
+            raise ValueError("Text type requires text")
 
         if self.data_type.is_binary and not self.binary:
-            raise ValueError("二进制类型必须提供 binary")
+            raise ValueError("Binary type requires binary")
 
         if self.text and self.binary:
-            raise ValueError("不能同时提供 text 和 binary")
-
-
+            raise ValueError("Cannot provide text and binary at the same time")
 
     def unlink(self) -> None:
-        """删除数据并解除数据关联"""
+        """Delete saved data and clear linkage."""
         if self.saved_path and self.saved_path.exists():
             try:
                 self.saved_path.unlink()

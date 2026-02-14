@@ -416,7 +416,7 @@
         "url": "https://api.lolimi.cn/API/Ser/api.php",
         "type": "text",
         "params": {
-            "keywords": ""
+            "name": ""
         },
         "parse": "text"
     },
@@ -455,7 +455,7 @@
         "url": "https://api.lolimi.cn/API/Ren/api.php",
         "type": "text",
         "params": {
-            "keywords": "",
+            "name": "",
             "type": "json"
         },
         "parse": "text"
@@ -576,14 +576,6 @@
         "type": "text",
         "params": {
             "type": "text"
-        }
-    },
-    {
-        "name": "胡乱描述",
-        "url": "http://api.317ak.cn/api/yljk/hlmsyl/hlmsyl",
-        "type": "text",
-        "params": {
-            "keywords": ""
         }
     },
     {

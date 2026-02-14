@@ -16,12 +16,6 @@ except ModuleNotFoundError:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Start api-aggregator runtime.")
     parser.add_argument(
-        "--data-dir",
-        type=Path,
-        default=None,
-        help="Data directory path (default: ./data).",
-    )
-    parser.add_argument(
         "--dashboard-host",
         default="0.0.0.0",
         help="Dashboard bind host (default: 0.0.0.0).",
@@ -42,7 +36,7 @@ def parse_args() -> argparse.Namespace:
 
 async def amain() -> None:
     args = parse_args()
-    app = APICoreApp(data_dir=args.data_dir)
+    app = APICoreApp()
     app.cfg.dashboard.host = args.dashboard_host
     app.cfg.dashboard.port = args.dashboard_port
 
