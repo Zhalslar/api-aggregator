@@ -18,20 +18,20 @@ A lightweight API aggregation core runtime for API/site registry, fetching, loca
 
 Repository: `https://github.com/Zhalslar/api-aggregator`
 
-## Table of Contents
+## 📚 Table of Contents
 
-- [Features](#features)
-- [Installation](#installation)
-- [Virtual Environment](#virtual-environment)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Framework Integration (AstrBot-style)](#framework-integration-astrbot-style)
-- [Dashboard](#dashboard)
-- [Project Layout](#project-layout)
-- [Development and Release](#development-and-release)
-- [FAQ](#faq)
+- [✨ Features](#features)
+- [📦 Installation](#installation)
+- [🧪 Virtual Environment](#virtual-environment)
+- [🚀 Quick Start](#quick-start)
+- [⚙️ Configuration](#configuration)
+- [🤖 Framework Integration (AstrBot-style)](#framework-integration-astrbot-style)
+- [🖥️ Dashboard](#dashboard)
+- [🧭 Project Layout](#project-layout)
+- [🛠️ Development and Release](#development-and-release)
+- [❓ FAQ](#faq)
 
-## Features
+## ✨ Features
 
 - API and site registry management (builtin + local pools)
 - Remote response parsing (text/JSON/binary)
@@ -39,7 +39,7 @@ Repository: `https://github.com/Zhalslar/api-aggregator`
 - Dashboard UI for operations
 - Cron scheduler (`APScheduler`, installed by default)
 
-## Installation
+## 📦 Installation
 
 | Scenario | Command |
 | --- | --- |
@@ -51,13 +51,13 @@ Notes:
 - Distribution package name: `api-aggregator`
 - Import package name: `api_aggregator`
 
-## Virtual Environment
+## 🧪 Virtual Environment
 
 - Quick guide: `docs/zh-CN/virtualenv.md` (Chinese, default)
 - English guide: `docs/en/virtualenv.md`
 - One-command bootstrap (PowerShell): `.\scripts\bootstrap.ps1`
 
-## Quick Start
+## 🚀 Quick Start
 
 ```python
 import asyncio
@@ -76,7 +76,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## Configuration
+## ⚙️ Configuration
 
 `APICoreApp()` uses `APIConfig` internally. Main defaults:
 
@@ -89,7 +89,7 @@ asyncio.run(main())
 
 Request-level fallback strategy: `DataService.fetch(..., use_local=True)`. 
 
-## Framework Integration (AstrBot-style)
+## 🤖 Framework Integration (AstrBot-style)
 
 
 <details>
@@ -164,7 +164,7 @@ AstrBot mapping suggestions:
 
 </details>
 
-## Dashboard
+## 🖥️ Dashboard
 
 Default URL after startup: `http://0.0.0.0:4141`
 
@@ -176,7 +176,7 @@ Built-in operations:
 
 Logo asset path: `src/api_aggregator/dashboard/assets/images/logo.png`
 
-## Project Layout
+## 🧭 Project Layout
 
 ```text
 api-aggregator/
@@ -192,7 +192,7 @@ api-aggregator/
   requirements.txt
 ```
 
-## Development and Release
+## 🛠️ Development and Release
 
 Local checks:
 
@@ -213,7 +213,7 @@ Pre-upload check:
 uv run python -m twine check dist/*
 ```
 
-## FAQ
+## ❓ FAQ
 
 1. Is `APScheduler` optional?
 No. It is installed by default as a core dependency.
@@ -223,4 +223,8 @@ Python import names cannot contain `-`. The distribution name is `api-aggregator
 
 3. Where should logo files live?
 Use `src/api_aggregator/dashboard/assets/images/` to keep repository root clean.
+
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Zhalslar/api-aggregator&type=Date)](https://star-history.com/#Zhalslar/api-aggregator&Date)
 
