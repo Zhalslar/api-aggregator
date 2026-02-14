@@ -19,7 +19,7 @@
 3. 启动项目：
 
 ```powershell
-python -c "import asyncio; from api_aggregator import APICoreApp; asyncio.run(APICoreApp().run_forever())"
+python start.py
 ```
 
 ## Windows 手动方式
@@ -38,7 +38,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
 pip install -e ".[scheduler]"
-python -c "import asyncio; from api_aggregator import APICoreApp; asyncio.run(APICoreApp().run_forever())"
+python start.py
 ```
 
 ## 可选：不安装定时器依赖

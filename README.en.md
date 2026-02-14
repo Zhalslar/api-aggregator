@@ -59,6 +59,20 @@ Notes:
 
 ## 🚀 Quick Start
 
+Terminal quick start:
+
+```bash
+python start.py
+```
+
+Optional flags example:
+
+```bash
+python start.py --dashboard-host 127.0.0.1 --dashboard-port 4141
+```
+
+Programmatic usage:
+
 ```python
 import asyncio
 from api_aggregator import APICoreApp

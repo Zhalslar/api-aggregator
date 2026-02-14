@@ -19,7 +19,7 @@ Use a project-local `.venv` as the default workflow.
 3. Start the app:
 
 ```powershell
-python -c "import asyncio; from api_aggregator import APICoreApp; asyncio.run(APICoreApp().run_forever())"
+python start.py
 ```
 
 ## Windows Manual Setup
@@ -38,7 +38,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
 pip install -e ".[scheduler]"
-python -c "import asyncio; from api_aggregator import APICoreApp; asyncio.run(APICoreApp().run_forever())"
+python start.py
 ```
 
 ## Optional: Skip scheduler dependency

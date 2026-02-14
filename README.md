@@ -50,6 +50,20 @@
 
 ## 🚀 快速开始
 
+终端快速启动：
+
+```bash
+python start.py
+```
+
+可选参数示例：
+
+```bash
+python start.py --dashboard-host 127.0.0.1 --dashboard-port 4141
+```
+
+代码接入示例：
+
 ```python
 import asyncio
 from api_aggregator import APICoreApp
