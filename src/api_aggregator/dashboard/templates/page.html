@@ -1,0 +1,252 @@
+﻿<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="page_title">APIs Plugin WebUI</title>
+  <link rel="stylesheet" href="/assets/css/page.css">
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <div class="title-row">
+          <img class="plugin-logo" src="/assets/images/logo.png" alt="plugin logo">
+          <h1 data-i18n="header_title">API聚合插件面板</h1>
+        </div>
+      </div>
+      <div class="row">
+        <a
+          id="repoLink"
+          class="icon-link-btn"
+          href="https://github.com/Zhalslar/api-aggregator"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Repository"
+          aria-label="Repository"
+        >
+          <svg class="github-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 2C6.48 2 2 6.58 2 12.22C2 16.73 4.87 20.56 8.84 21.92C9.34 22 9.5 21.69 9.5 21.42V19.69C6.73 20.3 6.14 18.32 6.14 18.32C5.68 17.14 5.03 16.82 5.03 16.82C4.12 16.19 5.1 16.21 5.1 16.21C6.1 16.28 6.63 17.26 6.63 17.26C7.5 18.81 8.97 18.32 9.54 18.05C9.63 17.39 9.89 16.93 10.17 16.68C7.95 16.42 5.62 15.55 5.62 11.76C5.62 10.64 6 9.74 6.65 9.02C6.55 8.77 6.2 7.71 6.75 6.35C6.75 6.35 7.59 6.08 9.5 7.39C10.29 7.16 11.15 7.05 12 7.05C12.85 7.05 13.71 7.16 14.5 7.39C16.41 6.08 17.25 6.35 17.25 6.35C17.8 7.71 17.45 8.77 17.35 9.02C18 9.74 18.38 10.64 18.38 11.76C18.38 15.56 16.04 16.41 13.81 16.67C14.17 16.98 14.5 17.63 14.5 18.62V21.42C14.5 21.69 14.66 22.01 15.17 21.92C19.14 20.55 22 16.73 22 12.22C22 6.58 17.52 2 12 2Z" />
+          </svg>
+        </a>
+        <a
+          id="authorLink"
+          class="icon-link-btn"
+          href="https://github.com/Zhalslar"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Author Home"
+          aria-label="Author Home"
+        >
+          <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 12A5 5 0 1 0 12 2A5 5 0 0 0 12 12M12 14C7.58 14 4 15.79 4 18V20H20V18C20 15.79 16.42 14 12 14Z" />
+          </svg>
+        </a>
+        <button id="themeIconBtn" class="icon-link-btn" type="button" onclick="toggleThemeMode()" title="Theme" aria-label="Theme">
+          <svg class="icon-svg" id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+        </button>
+        <button id="langIconBtn" class="icon-link-btn" type="button" onclick="toggleLanguageMode()" title="Language"
+          aria-label="Language">
+          <svg class="icon-svg" id="langIcon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12.87 15.07L11 13.2C11.57 12.43 12.04 11.54 12.4 10.6H14.27V9H9V10.6H10.63C10.29 11.43 9.89 12.18 9.43 12.83C8.74 12.07 8.16 11.17 7.74 10.2H6.1C6.6 11.45 7.35 12.61 8.29 13.56L4.56 17.29L5.69 18.42L9.43 14.68L11.74 16.99L12.87 15.86M17.5 5H19L22 13H20.5L19.75 11H16.25L15.5 13H14L17.5 5M16.8 9.5H19.2L18 6.3L16.8 9.5Z" />
+          </svg>
+        </button>
+        <button id="restartIconBtn" class="icon-link-btn restart-btn" type="button" onclick="onRestartAppClick(this)" title="Restart" aria-label="Restart">
+          <svg id="restartIcon" class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M13 3V11H11V3H13M17.66 6.34L19.07 4.93A10 10 0 1 1 4.93 4.93L6.34 6.34A8 8 0 1 0 17.66 6.34Z" />
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="running-tasks-bar" id="runningTasksBar"></div>
+
+    <div class="panel-tabs">
+      <button id="tabBtnSite" class="panel-tab is-active" onclick="switchMainTab('site')">
+        <span class="tab-icon" aria-hidden="true">
+          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2M4.06 11H8.08A16.78 16.78 0 0 0 8.84 6.73A8.03 8.03 0 0 0 4.06 11M4.06 13A8.03 8.03 0 0 0 8.84 17.27A16.78 16.78 0 0 0 8.08 13H4.06M11 4.06A7.98 7.98 0 0 0 9.92 5.44A14.83 14.83 0 0 0 10.08 11H13.92A14.83 14.83 0 0 0 14.08 5.44A7.98 7.98 0 0 0 13 4.06V4H11V4.06M13 19.94A7.98 7.98 0 0 0 14.08 18.56A14.83 14.83 0 0 0 13.92 13H10.08A14.83 14.83 0 0 0 9.92 18.56A7.98 7.98 0 0 0 11 19.94V20H13V19.94M15.16 6.73A16.78 16.78 0 0 1 15.92 11H19.94A8.03 8.03 0 0 0 15.16 6.73M15.92 13A16.78 16.78 0 0 1 15.16 17.27A8.03 8.03 0 0 0 19.94 13H15.92Z" /></svg>
+        </span>
+        <span id="tabBtnSiteLabel" class="tab-label" data-i18n="site_pool">Site Pool</span>
+      </button>
+      <button id="tabBtnApi" class="panel-tab" onclick="switchMainTab('api')">
+        <span class="tab-icon" aria-hidden="true">
+          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M8 17L3 12L8 7L9.41 8.41L5.83 12L9.41 15.59L8 17M16 17L14.59 15.59L18.17 12L14.59 8.41L16 7L21 12L16 17Z" /></svg>
+        </span>
+        <span id="tabBtnApiLabel" class="tab-label" data-i18n="api_pool">API Pool</span>
+      </button>
+      <button id="tabBtnLocal" class="panel-tab" onclick="switchMainTab('local')">
+        <span class="tab-icon" aria-hidden="true">
+          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 3C7.03 3 3 4.79 3 7V17C3 19.21 7.03 21 12 21C16.97 21 21 19.21 21 17V7C21 4.79 16.97 3 12 3M12 5C16.42 5 19 6.57 19 7C19 7.43 16.42 9 12 9C7.58 9 5 7.43 5 7C5 6.57 7.58 5 12 5M12 19C7.58 19 5 17.43 5 17V14.5C6.64 15.47 9.12 16 12 16C14.88 16 17.36 15.47 19 14.5V17C19 17.43 16.42 19 12 19M12 14C7.58 14 5 12.43 5 12V9.5C6.64 10.47 9.12 11 12 11C14.88 11 17.36 10.47 19 9.5V12C19 12.43 16.42 14 12 14Z" /></svg>
+        </span>
+        <span id="tabBtnLocalLabel" class="tab-label" data-i18n="local_data_pool">Local Data</span>
+      </button>
+    </div>
+
+    <div id="panelSite" class="main-panel is-active">
+      <div class="card">
+        <div class="card-header">
+          <strong data-i18n="site_pool">Site Pool</strong>
+          <div class="card-actions">
+            <span class="status" id="siteCount">0 items</span>
+            <button class="site-add-btn" id="btnAddSite" onclick="openEditor('site')">Add Site</button>
+          </div>
+        </div>
+        <table id="siteTable"></table>
+      </div>
+    </div>
+
+    <div id="panelApi" class="main-panel">
+      <div class="card">
+        <div class="card-header">
+          <strong data-i18n="api_pool">API Pool</strong>
+          <div class="card-actions">
+            <span class="status" id="apiCount">0 items</span>
+            <input id="apiSearch" class="select-input api-search-input" type="text" placeholder="Search API"
+              oninput="onApiSearchChange(this.value)">
+            <select id="apiPageSize" class="select-input pager-size-select" onchange="onApiPageSizeChange(this.value)">
+              <option value="all" selected>ALL</option>
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+            <div id="apiPagerTop" class="pager"></div>
+            <button class="warn" id="btnTestAll" onclick="onTestAllClick(this)">Test All APIs</button>
+            <button class="api-add-btn" id="btnAddApi" onclick="openEditor('api')">Add API</button>
+          </div>
+        </div>
+        <table id="apiTable"></table>
+      </div>
+    </div>
+
+    <div id="panelLocal" class="main-panel">
+      <div class="card">
+        <div class="card-header">
+          <strong data-i18n="local_data_pool">Local Data</strong>
+          <div class="card-actions">
+            <span class="status" id="localDataCount">0 items</span>
+            <button id="btnRefreshLocalData" onclick="onRefreshLocalDataClick(this)">Refresh</button>
+          </div>
+        </div>
+        <table id="localDataTable"></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="editorModal">
+    <div class="dialog">
+      <div class="row row-gap-bottom">
+        <strong id="editorTitle">Edit</strong>
+        <span class="status" id="editorHint">Structured form</span>
+      </div>
+      <div id="editorForm" class="form-grid"></div>
+      <div class="row row-gap-top modal-actions">
+        <button class="warn" id="btnTestEditor" onclick="onEditorTestClick(this)">Test</button>
+        <button class="primary" id="btnSave" onclick="onSaveClick(this)">Save</button>
+        <button id="btnCancel" onclick="closeEditor()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="testModal">
+    <div class="dialog test-dialog">
+      <div class="row row-gap-bottom">
+        <strong id="testModalTitle" data-i18n="test_all_title">Batch API Test</strong>
+        <span class="status" id="testProgressText"></span>
+      </div>
+      <div class="test-progress-track" aria-hidden="true">
+        <div class="test-progress-fill" id="testProgressFill"></div>
+      </div>
+      <div class="test-summary" id="testSummary" data-i18n="test_waiting">Waiting to start...</div>
+      <div class="test-log" id="testLog"></div>
+      <div class="row row-gap-top modal-actions test-modal-actions">
+        <div class="test-repeat-controls" id="singleTestRepeatControls">
+          <label for="singleTestInterval" class="test-repeat-label" data-i18n="test_repeat_interval">Interval (s)</label>
+          <input
+            id="singleTestInterval"
+            class="text-input test-repeat-input"
+            type="number"
+            min="0"
+            step="0.1"
+            value="3"
+          >
+          <label for="singleTestTimes" class="test-repeat-label" data-i18n="test_repeat_times">Times</label>
+          <input
+            id="singleTestTimes"
+            class="text-input test-repeat-input"
+            type="number"
+            min="1"
+            step="1"
+            value="5"
+          >
+          <button id="btnSingleTestRepeat" type="button" onclick="onToggleSingleRepeatClick(this)" data-i18n="test_repeat_start">Repeat Test</button>
+          <button id="btnSingleTestPause" class="test-repeat-pause-btn" type="button" onclick="onToggleSingleRepeatPauseClick(this)" data-i18n="test_repeat_pause">Pause</button>
+        </div>
+        <button id="btnCloseTestModal" onclick="closeTestModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="localDataModal">
+    <div class="dialog test-dialog" id="localDataDialog">
+      <div class="row row-gap-bottom">
+        <strong id="localDataModalTitle">Local Data</strong>
+        <span class="status" id="localDataModalHint"></span>
+      </div>
+      <div class="test-log" id="localDataItems"></div>
+      <div class="row row-gap-top modal-actions">
+        <button class="danger" id="btnConfirmLocalDataDelete" onclick="onConfirmLocalDataDeleteClick(this)" data-i18n="confirm_delete">Confirm Delete</button>
+        <button id="btnCloseLocalDataModal" onclick="closeLocalDataModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="duplicateChoiceModal">
+    <div class="dialog duplicate-dialog">
+      <div class="row row-gap-bottom">
+        <strong id="duplicateChoiceTitle" data-i18n="duplicate_data_title">Duplicate Data</strong>
+      </div>
+      <div class="test-summary" id="duplicateChoiceMessage"></div>
+      <div class="row row-gap-top modal-actions">
+        <button id="btnDuplicateSkipOnce" type="button" onclick="onDuplicateChoiceClick('skip_once')" data-i18n="test_repeat_skip_once">Skip Once</button>
+        <button class="warn" id="btnDuplicateSkipAll" type="button" onclick="onDuplicateChoiceClick('skip_all')" data-i18n="test_repeat_skip_all">Skip And Do Not Ask Again</button>
+        <button class="danger" id="btnDuplicateCancelTest" type="button" onclick="onDuplicateChoiceClick('cancel_test')" data-i18n="test_repeat_cancel">Cancel Test</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="restartModal">
+    <div class="dialog restart-dialog">
+      <div class="row row-gap-bottom">
+        <strong id="restartModalTitle" data-i18n="restart_modal_title">Restart Services</strong>
+      </div>
+      <div class="test-summary restart-status" id="restartModalStatus" data-i18n="restart_modal_status_running">
+        Restarting core services...
+      </div>
+      <div class="restart-progress-track" aria-hidden="true">
+        <div class="restart-progress-fill" id="restartProgressFill"></div>
+      </div>
+      <div class="row row-gap-top modal-actions">
+        <button id="btnRestartClose" onclick="closeRestartModal()" data-i18n="close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="undo-bar" id="undoBar">
+    <span id="undoText"></span>
+    <button id="btnUndoDelete" onclick="onUndoDeleteClick(this)">Undo</button>
+    <button class="btn-square" id="btnUndoClose" onclick="clearUndoNotice()">×</button>
+  </div>
+
+  <script src="/assets/js/i18n.js"></script>
+  <script src="/assets/js/shared/utils.js"></script>
+  <script src="/assets/js/shared/http.js"></script>
+  <script src="/assets/js/page.js"></script>
+</body>
+
+</html>
+
+

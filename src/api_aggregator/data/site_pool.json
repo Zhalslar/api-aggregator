@@ -1,0 +1,74 @@
+[
+  {
+    "__template_key": "default",
+    "name": "倾梦API",
+    "url": "http://api.317ak.cn",
+    "enabled": true,
+    "headers": {},
+    "keys": {},
+    "timeout": 60
+  },
+  {
+    "__template_key": "default",
+    "name": "星辰付",
+    "url": "http://api.xingchenfu.xyz",
+    "enabled": true,
+    "headers": {},
+    "keys": {},
+    "timeout": 60
+  },
+  {
+    "__template_key": "default",
+    "name": "FAPI",
+    "url": "https://api.lolimi.cn",
+    "enabled": true,
+    "headers": {},
+    "keys": {},
+    "timeout": 60
+  },
+  {
+    "__template_key": "default",
+    "name": "纯净API",
+    "url": "https://api.pearktrue.cn",
+    "enabled": true,
+    "headers": {},
+    "keys": {},
+    "timeout": 60
+  },
+  {
+    "__template_key": "default",
+    "name": "糖豆子API",
+    "url": "https://api.tangdouz.com",
+    "enabled": true,
+    "headers": {},
+    "keys": {},
+    "timeout": 60
+  },
+  {
+    "__template_key": "default",
+    "name": "星之阁API",
+    "url": "https://api.xingzhige.com",
+    "enabled": true,
+    "headers": {},
+    "keys": {},
+    "timeout": 60
+  },
+  {
+    "__template_key": "default",
+    "name": "枫林API",
+    "url": "https://api.yuafeng.cn",
+    "enabled": true,
+    "headers": {},
+    "keys": {},
+    "timeout": 60
+  },
+  {
+    "__template_key": "default",
+    "name": "问情免费API",
+    "url": "https://free.wqwlkj.cn",
+    "enabled": true,
+    "headers": {},
+    "keys": {},
+    "timeout": 60
+  }
+]

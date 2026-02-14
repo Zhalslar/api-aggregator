@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "api-aggregator"
+version = "0.1.0"
+description = "API aggregator core runtime with registry, scheduler, local persistence, and dashboard."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [{ name = "Zhalslar" }]
+dependencies = [
+  "aiohttp>=3.9,<4",
+  "beautifulsoup4>=4.12,<5",
+  "APScheduler>=3.10,<4",
+]
+
+[project.urls]
+Homepage = "https://github.com/Zhalslar/api-aggregator"
+Repository = "https://github.com/Zhalslar/api-aggregator"
+Issues = "https://github.com/Zhalslar/api-aggregator/issues"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["api_aggregator*"]
+
+[tool.setuptools.package-data]
+api_aggregator = [
+  "dashboard/templates/**/*.html",
+  "dashboard/assets/**/*",
+  "source/*.json",
+  "data/*.json",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = []
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.1",
+]
