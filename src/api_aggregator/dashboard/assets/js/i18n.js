@@ -1,7 +1,7 @@
 const I18N = (window.I18N = {
   en: {
-    page_title: "API聚合器面板",
-    header_title: "API聚合器面板",
+    page_title: "API Aggregator Dashboard",
+    header_title: "API Aggregator Dashboard",
     header_hint: "",
     repo_button: "Repository",
     author_home_button: "Author Home",

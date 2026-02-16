@@ -1,5 +1,4 @@
 import json
-import random
 import re
 from dataclasses import dataclass
 from urllib.parse import unquote, urlparse
@@ -61,7 +60,19 @@ class RequestResult:
             data = json.loads(self.raw_text)
             value = self._get_nested_value(data, parse_rule)
 
-            if isinstance(value, dict):
+            if isinstance(value, list):
+                rendered_items: list[str] = []
+                for item in value:
+                    text = (
+                        self.dict_to_string(item)
+                        if isinstance(item, dict)
+                        else str(item)
+                    )
+                    text = text.strip()
+                    if text:
+                        rendered_items.append(text)
+                self.raw_text = "\n".join(rendered_items)
+            elif isinstance(value, dict):
                 self.raw_text = self.dict_to_string(value)
             else:
                 self.raw_text = str(value)
@@ -129,34 +140,42 @@ class RequestResult:
         return recursive_parse(input_dict, 0)
 
     @staticmethod
-    def _get_nested_value(result: dict, target: str):
+    def _extract_nested_values(value: object, keys: list[str]) -> list[object]:
+        if not keys:
+            return [value]
+
+        key = keys[0].strip("[]")
+        rest = keys[1:]
+
+        if isinstance(value, dict):
+            if key == "" or key.isdigit():
+                return []
+            return RequestResult._extract_nested_values(value.get(key, ""), rest)
+
+        if isinstance(value, list):
+            if key == "":
+                merged: list[object] = []
+                for item in value:
+                    merged.extend(RequestResult._extract_nested_values(item, rest))
+                return merged
+            if key.isdigit():
+                index = int(key)
+                if 0 <= index < len(value):
+                    return RequestResult._extract_nested_values(value[index], rest)
+                return []
+            return []
+
+        return []
+
+    @staticmethod
+    def _get_nested_value(result: object, target: str):
         keys = [key for key in re.split(r"\.|(\[\d*\])", target) if key and key.strip()]
-
-        value = result
-
-        for key in keys:
-            key = key.strip("[]")
-
-            if isinstance(value, dict):
-                value = value.get(key, "")
-            elif isinstance(value, list):
-                if key == "":
-                    if value:
-                        value = random.choice(value)
-                    else:
-                        return ""
-                elif key.isdigit():
-                    index = int(key)
-                    if 0 <= index < len(value):
-                        value = value[index]
-                    else:
-                        return ""
-                else:
-                    return ""
-            else:
-                return ""
-
-        return value
+        values = RequestResult._extract_nested_values(result, keys)
+        if not values:
+            return ""
+        if len(values) == 1:
+            return values[0]
+        return values
 
     def is_valid(self) -> bool:
         """

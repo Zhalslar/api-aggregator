@@ -1032,27 +1032,6 @@ function createTestManager(deps) {
     await loadPool();
   }
 
-  async function onTestAllClick(btn) {
-    await withButtonLoading(btn, async () => {
-      const names =
-        typeof getBatchTestNames === "function" ? normalizeList(getBatchTestNames()) : [];
-      if (names.length) {
-        await testApisStream(
-          names,
-          createRunningTask("batch", t("test_all_title")),
-          null
-        );
-        return;
-      }
-      const range = typeof getBatchTestRange === "function" ? getBatchTestRange() : {};
-      await testApisStream(
-        [],
-        createRunningTask("batch", t("test_all_title")),
-        range
-      );
-    });
-  }
-
   return {
     getSingleRepeatIntervalSeconds,
     getSingleRepeatTimes,
@@ -1080,6 +1059,5 @@ function createTestManager(deps) {
     applyApiValidityBatch,
     onToggleSingleTestParamSheetClick,
     testApisStream,
-    onTestAllClick,
   };
 }

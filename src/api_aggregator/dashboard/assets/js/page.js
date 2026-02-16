@@ -1030,22 +1030,47 @@ function buildApiPayload() {
   return editorManager.buildApiPayload();
 }
 
-function closeApiSiteFilterDropdown() {
-  const dropdown = document.getElementById("apiSiteFilterDropdown");
+function closeDropdown(dropdownId) {
+  const dropdown = document.getElementById(dropdownId);
   if (dropdown) {
     dropdown.classList.remove("open");
   }
 }
 
-function toggleApiSiteFilterDropdown(event) {
+function toggleDropdown(event, dropdownId) {
   if (event) {
     event.preventDefault();
     event.stopPropagation();
   }
-  const dropdown = document.getElementById("apiSiteFilterDropdown");
+  const dropdown = document.getElementById(dropdownId);
   if (!dropdown) return;
   const shouldOpen = !dropdown.classList.contains("open");
   dropdown.classList.toggle("open", shouldOpen);
+}
+
+function setApiPageToFirst() {
+  apiPage = 1;
+  localStorage.setItem("api_aggregator_page_api", String(apiPage));
+  persistPageQueryState();
+}
+
+function resetApiPageAndRender() {
+  setApiPageToFirst();
+  renderApis();
+}
+
+function resetLocalPageAndReload() {
+  localPage = 1;
+  persistPageQueryState();
+  void loadLocalData();
+}
+
+function closeApiSiteFilterDropdown() {
+  closeDropdown("apiSiteFilterDropdown");
+}
+
+function toggleApiSiteFilterDropdown(event) {
+  toggleDropdown(event, "apiSiteFilterDropdown");
 }
 
 function getApiSiteFilterNames() {
@@ -1093,11 +1118,51 @@ function updateApiSiteFilterButtonLabel() {
   btn.textContent = `${label} (${selected}/${total})`;
 }
 
-function renderApiSiteFilter() {
-  const optionsWrap = document.getElementById("apiSiteFilterOptions");
-  const toggleAll = document.getElementById("apiSiteFilterToggleAll");
+function renderCheckboxFilter({
+  optionsWrapId,
+  toggleAllId,
+  optionValues,
+  selectedSet,
+  getOptionLabel,
+  onOptionChange,
+  onAfterRender,
+}) {
+  const optionsWrap = document.getElementById(optionsWrapId);
+  const toggleAll = document.getElementById(toggleAllId);
   if (!optionsWrap || !toggleAll) return;
 
+  const values = Array.isArray(optionValues) ? optionValues : [];
+  const safeSelectedSet = selectedSet instanceof Set ? selectedSet : new Set();
+  const toLabel = typeof getOptionLabel === "function" ? getOptionLabel : (value) => value;
+  const onChange = typeof onOptionChange === "function" ? onOptionChange : () => {};
+
+  optionsWrap.innerHTML = "";
+  values.forEach((value) => {
+    const row = document.createElement("label");
+    row.className = "site-filter-option";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = safeSelectedSet.has(value);
+    input.addEventListener("change", () => {
+      onChange(value, input.checked);
+    });
+    const text = document.createElement("span");
+    text.textContent = textValue(toLabel(value));
+    row.appendChild(input);
+    row.appendChild(text);
+    optionsWrap.appendChild(row);
+  });
+
+  const selected = safeSelectedSet.size;
+  const total = values.length;
+  toggleAll.checked = total > 0 && selected === total;
+  toggleAll.indeterminate = selected > 0 && selected < total;
+  if (typeof onAfterRender === "function") {
+    onAfterRender({ selected, total });
+  }
+}
+
+function renderApiSiteFilter() {
   const optionNames = getApiSiteFilterNames();
   syncApiSiteFilterSelection(optionNames);
   const optionSet = new Set(optionNames);
@@ -1105,40 +1170,22 @@ function renderApiSiteFilter() {
     Array.from(apiSiteFilterSelected).filter((name) => optionSet.has(name))
   );
 
-  optionsWrap.innerHTML = "";
-  optionNames.forEach((name) => {
-    const row = document.createElement("label");
-    row.className = "site-filter-option";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = apiSiteFilterSelected.has(name);
-    input.addEventListener("change", () => {
-      onApiSiteFilterOptionChange(name, input.checked);
-    });
-    const text = document.createElement("span");
-    text.textContent = name;
-    row.appendChild(input);
-    row.appendChild(text);
-    optionsWrap.appendChild(row);
+  renderCheckboxFilter({
+    optionsWrapId: "apiSiteFilterOptions",
+    toggleAllId: "apiSiteFilterToggleAll",
+    optionValues: optionNames,
+    selectedSet: apiSiteFilterSelected,
+    getOptionLabel: (value) => value,
+    onOptionChange: onApiSiteFilterOptionChange,
+    onAfterRender: () => {
+      updateApiSiteFilterButtonLabel();
+    },
   });
-
-  const selected = apiSiteFilterSelected.size;
-  const total = optionNames.length;
-  toggleAll.checked = total > 0 && selected === total;
-  toggleAll.indeterminate = selected > 0 && selected < total;
-  updateApiSiteFilterButtonLabel();
 }
 
 function onApiSiteFilterToggleAll(checked) {
-  if (checked) {
-    apiSiteFilterSelected = new Set(apiSiteFilterOptionNames);
-  } else {
-    apiSiteFilterSelected = new Set();
-  }
-  apiPage = 1;
-  localStorage.setItem("api_aggregator_page_api", String(apiPage));
-  persistPageQueryState();
-  renderApis();
+  apiSiteFilterSelected = checked ? new Set(apiSiteFilterOptionNames) : new Set();
+  resetApiPageAndRender();
 }
 
 function onApiSiteFilterOptionChange(siteName, checked) {
@@ -1149,28 +1196,15 @@ function onApiSiteFilterOptionChange(siteName, checked) {
   } else {
     apiSiteFilterSelected.delete(normalized);
   }
-  apiPage = 1;
-  localStorage.setItem("api_aggregator_page_api", String(apiPage));
-  persistPageQueryState();
-  renderApis();
+  resetApiPageAndRender();
 }
 
 function closeApiTypeFilterDropdown() {
-  const dropdown = document.getElementById("apiTypeFilterDropdown");
-  if (dropdown) {
-    dropdown.classList.remove("open");
-  }
+  closeDropdown("apiTypeFilterDropdown");
 }
 
 function toggleApiTypeFilterDropdown(event) {
-  if (event) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
-  const dropdown = document.getElementById("apiTypeFilterDropdown");
-  if (!dropdown) return;
-  const shouldOpen = !dropdown.classList.contains("open");
-  dropdown.classList.toggle("open", shouldOpen);
+  toggleDropdown(event, "apiTypeFilterDropdown");
 }
 
 function getApiTypeFilterValues() {
@@ -1223,10 +1257,6 @@ function updateApiTypeFilterButtonLabel() {
 }
 
 function renderApiTypeFilter() {
-  const optionsWrap = document.getElementById("apiTypeFilterOptions");
-  const toggleAll = document.getElementById("apiTypeFilterToggleAll");
-  if (!optionsWrap || !toggleAll) return;
-
   const optionValues = getApiTypeFilterValues();
   syncApiTypeFilterSelection(optionValues);
   const optionSet = new Set(optionValues);
@@ -1234,40 +1264,22 @@ function renderApiTypeFilter() {
     Array.from(apiTypeFilterSelected).filter((value) => optionSet.has(value))
   );
 
-  optionsWrap.innerHTML = "";
-  optionValues.forEach((value) => {
-    const row = document.createElement("label");
-    row.className = "site-filter-option";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = apiTypeFilterSelected.has(value);
-    input.addEventListener("change", () => {
-      onApiTypeFilterOptionChange(value, input.checked);
-    });
-    const text = document.createElement("span");
-    text.textContent = getTypeOptionLabel(value);
-    row.appendChild(input);
-    row.appendChild(text);
-    optionsWrap.appendChild(row);
+  renderCheckboxFilter({
+    optionsWrapId: "apiTypeFilterOptions",
+    toggleAllId: "apiTypeFilterToggleAll",
+    optionValues,
+    selectedSet: apiTypeFilterSelected,
+    getOptionLabel: getTypeOptionLabel,
+    onOptionChange: onApiTypeFilterOptionChange,
+    onAfterRender: () => {
+      updateApiTypeFilterButtonLabel();
+    },
   });
-
-  const selected = apiTypeFilterSelected.size;
-  const total = optionValues.length;
-  toggleAll.checked = total > 0 && selected === total;
-  toggleAll.indeterminate = selected > 0 && selected < total;
-  updateApiTypeFilterButtonLabel();
 }
 
 function onApiTypeFilterToggleAll(checked) {
-  if (checked) {
-    apiTypeFilterSelected = new Set(apiTypeFilterOptionValues);
-  } else {
-    apiTypeFilterSelected = new Set();
-  }
-  apiPage = 1;
-  localStorage.setItem("api_aggregator_page_api", String(apiPage));
-  persistPageQueryState();
-  renderApis();
+  apiTypeFilterSelected = checked ? new Set(apiTypeFilterOptionValues) : new Set();
+  resetApiPageAndRender();
 }
 
 function onApiTypeFilterOptionChange(typeValue, checked) {
@@ -1278,10 +1290,7 @@ function onApiTypeFilterOptionChange(typeValue, checked) {
   } else {
     apiTypeFilterSelected.delete(normalized);
   }
-  apiPage = 1;
-  localStorage.setItem("api_aggregator_page_api", String(apiPage));
-  persistPageQueryState();
-  renderApis();
+  resetApiPageAndRender();
 }
 
 function openApiPoolBySite(siteName) {
@@ -1293,9 +1302,7 @@ function openApiPoolBySite(siteName) {
   apiSiteFilterSelected = optionNames.includes(normalized)
     ? new Set([normalized])
     : new Set();
-  apiPage = 1;
-  localStorage.setItem("api_aggregator_page_api", String(apiPage));
-  persistPageQueryState();
+  setApiPageToFirst();
   closeApiSiteFilterDropdown();
   switchMainTab("api");
   renderApis();
@@ -1361,21 +1368,11 @@ function getDisplayedApiNames() {
 }
 
 function closeLocalTypeFilterDropdown() {
-  const dropdown = document.getElementById("localTypeFilterDropdown");
-  if (dropdown) {
-    dropdown.classList.remove("open");
-  }
+  closeDropdown("localTypeFilterDropdown");
 }
 
 function toggleLocalTypeFilterDropdown(event) {
-  if (event) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
-  const dropdown = document.getElementById("localTypeFilterDropdown");
-  if (!dropdown) return;
-  const shouldOpen = !dropdown.classList.contains("open");
-  dropdown.classList.toggle("open", shouldOpen);
+  toggleDropdown(event, "localTypeFilterDropdown");
 }
 
 function getLocalTypeFilterValues() {
@@ -1421,10 +1418,6 @@ function updateLocalTypeFilterButtonLabel() {
 }
 
 function renderLocalTypeFilter() {
-  const optionsWrap = document.getElementById("localTypeFilterOptions");
-  const toggleAll = document.getElementById("localTypeFilterToggleAll");
-  if (!optionsWrap || !toggleAll) return;
-
   const optionValues = getLocalTypeFilterValues();
   syncLocalTypeFilterSelection(optionValues);
   const optionSet = new Set(optionValues);
@@ -1432,39 +1425,22 @@ function renderLocalTypeFilter() {
     Array.from(localTypeFilterSelected).filter((value) => optionSet.has(value))
   );
 
-  optionsWrap.innerHTML = "";
-  optionValues.forEach((value) => {
-    const row = document.createElement("label");
-    row.className = "site-filter-option";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = localTypeFilterSelected.has(value);
-    input.addEventListener("change", () => {
-      onLocalTypeFilterOptionChange(value, input.checked);
-    });
-    const text = document.createElement("span");
-    text.textContent = getTypeOptionLabel(value);
-    row.appendChild(input);
-    row.appendChild(text);
-    optionsWrap.appendChild(row);
+  renderCheckboxFilter({
+    optionsWrapId: "localTypeFilterOptions",
+    toggleAllId: "localTypeFilterToggleAll",
+    optionValues,
+    selectedSet: localTypeFilterSelected,
+    getOptionLabel: getTypeOptionLabel,
+    onOptionChange: onLocalTypeFilterOptionChange,
+    onAfterRender: () => {
+      updateLocalTypeFilterButtonLabel();
+    },
   });
-
-  const selected = localTypeFilterSelected.size;
-  const total = optionValues.length;
-  toggleAll.checked = total > 0 && selected === total;
-  toggleAll.indeterminate = selected > 0 && selected < total;
-  updateLocalTypeFilterButtonLabel();
 }
 
 function onLocalTypeFilterToggleAll(checked) {
-  if (checked) {
-    localTypeFilterSelected = new Set(localTypeFilterOptionValues);
-  } else {
-    localTypeFilterSelected = new Set();
-  }
-  localPage = 1;
-  persistPageQueryState();
-  void loadLocalData();
+  localTypeFilterSelected = checked ? new Set(localTypeFilterOptionValues) : new Set();
+  resetLocalPageAndReload();
 }
 
 function onLocalTypeFilterOptionChange(typeValue, checked) {
@@ -1475,9 +1451,7 @@ function onLocalTypeFilterOptionChange(typeValue, checked) {
   } else {
     localTypeFilterSelected.delete(normalized);
   }
-  localPage = 1;
-  persistPageQueryState();
-  void loadLocalData();
+  resetLocalPageAndReload();
 }
 
 function compareTextAsc(a, b) {

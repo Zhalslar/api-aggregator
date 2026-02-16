@@ -116,6 +116,48 @@ class PoolIOService:
         data.pop("site", None)
         return data
 
+    @staticmethod
+    def _strip_template_fields(row: dict[str, Any]) -> dict[str, Any]:
+        data = dict(row)
+        data.pop("template", None)
+        data.pop("__template_key", None)
+        return data
+
+    @staticmethod
+    def _collect_existing_names(rows: list[dict[str, Any]]) -> set[str]:
+        return {
+            str(item.get("name", "")).strip()
+            for item in rows
+            if isinstance(item, dict) and str(item.get("name", "")).strip()
+        }
+
+    def _prepare_import_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        existing_names: set[str],
+        normalize_row: Callable[[dict[str, Any]], dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], int, int]:
+        pending_names: set[str] = set()
+        accepted_rows: list[dict[str, Any]] = []
+        skipped = 0
+        failed = 0
+        for item in rows:
+            try:
+                normalized = self._strip_template_fields(normalize_row(item))
+                name = str(normalized.get("name", "")).strip()
+                if not name:
+                    failed += 1
+                    continue
+                if name in existing_names or name in pending_names:
+                    skipped += 1
+                    continue
+                pending_names.add(name)
+                accepted_rows.append(normalized)
+            except Exception:
+                failed += 1
+        return accepted_rows, skipped, failed
+
     def _build_export_rows(
         self, pool_type: str, rows: list[dict[str, Any]] | None = None
     ) -> list[dict[str, Any]]:
@@ -198,36 +240,21 @@ class PoolIOService:
         rows = self._parse_import_bytes(raw)
 
         if safe_type == "site":
-            existing_names = {
-                str(item.get("name", "")).strip()
-                for item in self.db.site_pool
-                if isinstance(item, dict) and str(item.get("name", "")).strip()
-            }
-            pending_names: set[str] = set()
-            accepted_rows: list[dict[str, Any]] = []
-            skipped = 0
-            failed = 0
-            for item in rows:
-                try:
-                    normalized = SitePayload.from_raw(
-                        item,
-                        require_name=True,
-                        require_url=True,
-                    ).to_dict()
-                    normalized.pop("template", None)
-                    normalized.pop("__template_key", None)
-                    name = str(normalized.get("name", "")).strip()
-                    if not name:
-                        failed += 1
-                        continue
-                    if name in existing_names or name in pending_names:
-                        skipped += 1
-                        continue
-                    pending_names.add(name)
-                    accepted_rows.append(normalized)
-                except Exception:
-                    failed += 1
-            created = self.site_mgr.add_entries(accepted_rows, save=False) if accepted_rows else []
+            existing_names = self._collect_existing_names(self.db.site_pool)
+            accepted_rows, skipped, failed = self._prepare_import_rows(
+                rows,
+                existing_names=existing_names,
+                normalize_row=lambda item: SitePayload.from_raw(
+                    item,
+                    require_name=True,
+                    require_url=True,
+                ).to_dict(),
+            )
+            created = (
+                self.site_mgr.add_entries(accepted_rows, save=False)
+                if accepted_rows
+                else []
+            )
             if created:
                 self.db.batch_update_site_pool(
                     upserts=[entry.to_dict() for entry in created],
@@ -241,44 +268,25 @@ class PoolIOService:
                 "failed": failed,
             }
 
-        existing_names = {
-            str(item.get("name", "")).strip()
-            for item in self.db.api_pool
-            if isinstance(item, dict) and str(item.get("name", "")).strip()
-        }
-        pending_names: set[str] = set()
+        existing_names = self._collect_existing_names(self.db.api_pool)
         resolver = (
             self._resolve_site_name if callable(self._resolve_site_name) else None
         )
-        normalized_rows: list[dict[str, Any]] = []
-        skipped = 0
-        failed = 0
-        for item in rows:
-            try:
-                normalized = ApiPayload.from_raw(
+        accepted_rows, skipped, failed = self._prepare_import_rows(
+            rows,
+            existing_names=existing_names,
+            normalize_row=lambda item: ApiPayload.from_raw(
                     item,
                     require_name=True,
                     require_url=True,
                     resolve_site_name=resolver,
-                ).to_dict()
-                normalized.pop("template", None)
-                normalized.pop("__template_key", None)
-                name = str(normalized.get("name", "")).strip()
-                if not name:
-                    failed += 1
-                    continue
-                if name in existing_names or name in pending_names:
-                    skipped += 1
-                    continue
-                pending_names.add(name)
-                normalized_rows.append(normalized)
-            except Exception:
-                failed += 1
+                ).to_dict(),
+        )
         created = self.api_mgr.add_entries(
-            normalized_rows,
+            accepted_rows,
             save=False,
             emit_changed=True,
-        ) if normalized_rows else []
+        ) if accepted_rows else []
         if created:
             self.db.batch_update_api_pool(
                 upserts=[entry.to_dict() for entry in created],

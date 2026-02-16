@@ -177,6 +177,23 @@
                 <div class="site-filter-options" id="apiSiteFilterOptions"></div>
               </div>
             </div>
+            <div class="site-filter" id="apiTypeFilterWrap">
+              <button
+                type="button"
+                id="apiTypeFilterBtn"
+                class="select-input site-filter-btn"
+                onclick="toggleApiTypeFilterDropdown(event)"
+              >
+                Types (0/0)
+              </button>
+              <div class="site-filter-dropdown" id="apiTypeFilterDropdown">
+                <label class="site-filter-option">
+                  <input type="checkbox" id="apiTypeFilterToggleAll" onchange="onApiTypeFilterToggleAll(this.checked)">
+                  <span data-i18n="all_types">All</span>
+                </label>
+                <div class="site-filter-options" id="apiTypeFilterOptions"></div>
+              </div>
+            </div>
             <select id="apiPageSize" class="select-input pager-size-select" onchange="onApiPageSizeChange(this.value)">
               <option value="all" selected>ALL</option>
               <option value="10">10</option>
@@ -224,6 +241,23 @@
               placeholder="Search Local Data"
               oninput="onLocalSearchChange(this.value)"
             >
+            <div class="site-filter" id="localTypeFilterWrap">
+              <button
+                type="button"
+                id="localTypeFilterBtn"
+                class="select-input site-filter-btn"
+                onclick="toggleLocalTypeFilterDropdown(event)"
+              >
+                Types (0/0)
+              </button>
+              <div class="site-filter-dropdown" id="localTypeFilterDropdown">
+                <label class="site-filter-option">
+                  <input type="checkbox" id="localTypeFilterToggleAll" onchange="onLocalTypeFilterToggleAll(this.checked)">
+                  <span data-i18n="all_types">All</span>
+                </label>
+                <div class="site-filter-options" id="localTypeFilterOptions"></div>
+              </div>
+            </div>
             <select id="localPageSize" class="select-input pager-size-select" onchange="onLocalPageSizeChange(this.value)">
               <option value="all" selected>ALL</option>
               <option value="10">10</option>

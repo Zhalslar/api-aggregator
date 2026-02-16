@@ -183,6 +183,32 @@ class DashboardServer:
             raise ValueError("request body must be an object")
         return data
 
+    @staticmethod
+    def _parse_query_values(
+        request: web.Request,
+        *,
+        item_key: str,
+        csv_key: str,
+    ) -> list[str]:
+        values = [
+            str(item).strip()
+            for item in request.query.getall(item_key, [])
+            if str(item).strip()
+        ]
+        csv_values = str(request.query.get(csv_key, "")).strip()
+        if csv_values:
+            values.extend(
+                [item.strip() for item in csv_values.split(",") if item.strip()]
+            )
+        return values
+
+    @staticmethod
+    def _pick_pagination(data: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: data[key]
+            for key in ("page", "page_size", "total", "total_pages", "start", "end")
+        }
+
     async def index(self, _: web.Request) -> web.Response:
         """GET / : return dashboard main HTML page."""
         return web.Response(text=HTML_PAGE, content_type="text/html")
@@ -285,12 +311,11 @@ class DashboardServer:
         )
         site_page_size = request.query.get("site_page_size", "all")
         api_page_size = request.query.get("api_page_size", "all")
-        raw_api_sites = request.query.getall("api_site", [])
-        csv_api_sites = request.query.get("api_sites", "")
-        if csv_api_sites:
-            raw_api_sites.extend(
-                [item.strip() for item in csv_api_sites.split(",") if item.strip()]
-            )
+        raw_api_sites = self._parse_query_values(
+            request,
+            item_key="api_site",
+            csv_key="api_sites",
+        )
 
         self.site_sync_service.sync_all_api_sites()
         site_page_data = self.db.query_site_pool(
@@ -318,26 +343,10 @@ class DashboardServer:
                     }
                 ),
                 "site_pagination": {
-                    k: site_page_data[k]
-                    for k in (
-                        "page",
-                        "page_size",
-                        "total",
-                        "total_pages",
-                        "start",
-                        "end",
-                    )
+                    **self._pick_pagination(site_page_data)
                 },
                 "api_pagination": {
-                    k: api_page_data[k]
-                    for k in (
-                        "page",
-                        "page_size",
-                        "total",
-                        "total_pages",
-                        "start",
-                        "end",
-                    )
+                    **self._pick_pagination(api_page_data)
                 },
             }
         )
@@ -657,12 +666,11 @@ class DashboardServer:
                 page_size = self._to_int(page_size_raw, default=20, minimum=1)
             query = request.query.get("search", "")
             sort_rule = request.query.get("sort", "name_asc")
-            raw_types = request.query.getall("type", [])
-            csv_types = request.query.get("types", "")
-            if csv_types:
-                raw_types.extend(
-                    [item.strip() for item in csv_types.split(",") if item.strip()]
-                )
+            raw_types = self._parse_query_values(
+                request,
+                item_key="type",
+                csv_key="types",
+            )
             paged = self.local.list_collections_page(
                 page=page,
                 page_size=page_size,
@@ -673,17 +681,7 @@ class DashboardServer:
             return self._ok(
                 {
                     "collections": paged["items"],
-                    "pagination": {
-                        k: paged[k]
-                        for k in (
-                            "page",
-                            "page_size",
-                            "total",
-                            "total_pages",
-                            "start",
-                            "end",
-                        )
-                    },
+                    "pagination": self._pick_pagination(paged),
                 }
             )
         except Exception as exc:
