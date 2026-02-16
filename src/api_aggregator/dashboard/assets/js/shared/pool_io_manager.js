@@ -337,6 +337,11 @@ function createPoolIoManager(deps) {
     return `${safeType}_pool_${stamp}.json`;
   }
 
+  function isGeneratedPoolFileName(name) {
+    const text = textValue(name).trim().toLowerCase();
+    return /^((api|site)_pool_\d{8}_\d{6}\.json)$/.test(text);
+  }
+
   function normalizeExportInputs(dirValue, nameValue, poolType) {
     const defaultDir = textValue(defaultPoolIoPath).trim();
     let dir = textValue(dirValue).trim();
@@ -358,6 +363,13 @@ function createPoolIoManager(deps) {
     }
     if (!name) {
       name = buildDefaultExportFileName(poolType);
+    } else {
+      const lowerName = name.toLowerCase();
+      const expectedPrefix = poolType === "api" ? "api_pool_" : "site_pool_";
+      const hasPoolPrefix = lowerName.startsWith("api_pool_") || lowerName.startsWith("site_pool_");
+      if (hasPoolPrefix && isGeneratedPoolFileName(name) && !lowerName.startsWith(expectedPrefix)) {
+        name = buildDefaultExportFileName(poolType);
+      }
     }
     if (!name.toLowerCase().endsWith(".json")) {
       name = `${name}.json`;

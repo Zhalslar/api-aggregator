@@ -58,21 +58,6 @@ class APIEntry:
             "site": self.site,
         }
 
-    def display(self):
-        """Render entry as display text."""
-        return (
-            f"api name: {self.name}\n"
-            f"api url: {self.url}\n"
-            f"api type: {self.type}\n"
-            f"params: {self.params}\n"
-            f"parse path: {self.parse}\n"
-            f"enabled: {self.enabled}\n"
-            f"scope: {self.scope}\n"
-            f"regex triggers: {self.keywords}\n"
-            f"cron trigger: {self.cron}\n"
-            f"valid: {self.valid}"
-        )
-
     # =============== Status ==================
 
     @property

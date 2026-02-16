@@ -184,6 +184,8 @@ const I18N = (window.I18N = {
     restart_modal_status_reconnecting: "Waiting for service restart...",
     api_count: "API Count",
     import_empty_hint: "No entries yet. Import a pool file first.",
+    quick_import_default: "Quick Import Default",
+    quick_import_default_missing: "Default file not found: {file}",
     api_type_filter: "Types",
     local_type_filter: "Types",
     all_types: "All",
@@ -209,6 +211,9 @@ const I18N = (window.I18N = {
     pool_import_result_summary: "{pool} import finished. Success: {success}, Duplicate skipped: {skipped}, Failed: {failed}",
     pool_delete_result_summary: "Deleted {deleted} file(s), failed {failed} file(s).",
     import_default_files_empty: "No .json files in default directory.",
+    quick_import_default: "Quick Import Default",
+    quick_import_default_missing: "Default file not found: {file}",
+
   },
   zh: {
     page_title: "API聚合器面板",
@@ -420,5 +425,7 @@ const I18N = (window.I18N = {
     pool_import_result_summary: "{pool} 导入完成，成功 {success}，重名跳过 {skipped}，失败 {failed}",
     pool_delete_result_summary: "已删除 {deleted} 个文件，失败 {failed} 个。",
     import_default_files_empty: "默认目录下没有 .json 文件。",
+    quick_import_default: "快速导入默认项",
+    quick_import_default_missing: "未找到默认文件：{file}",
   }
 });

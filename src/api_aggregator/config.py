@@ -12,20 +12,23 @@ class DashboardConfig:
 
 
 class APIConfig:
-    """Core plugin config independent from AstrBot internals."""
-
-    def __init__(self):
-        project_root = Path.cwd()
-
-        self.data_dir = project_root / "data"
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-
+    def __init__(self, *, data_dir: Path | None = None):
         self.dashboard = DashboardConfig()
+
+        self.dashboard_assets_dir = (
+                Path(__file__).resolve().parent / "dashboard" / "assets"
+            )
+        self.logo_path = self.dashboard_assets_dir / "images" / "logo.png"
+
+        project_root = Path.cwd()
+        self.data_dir = (data_dir or (project_root / "data")).resolve()
+        self.data_dir.mkdir(parents=True, exist_ok=True)
 
         self.local_dir = self.data_dir / "local"
         self.local_dir.mkdir(parents=True, exist_ok=True)
 
-        self.pool_files_dir = Path("pool_files")
+        self.pool_files_dir = (project_root / "pool_files").resolve()
+        self.pool_files_dir.mkdir(parents=True, exist_ok=True)
 
         self.default_request_timeout = 60
         self.default_request_headers = {

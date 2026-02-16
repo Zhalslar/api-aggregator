@@ -791,6 +791,19 @@ code.name-code {
   color: var(--muted);
 }
 
+.empty-pool-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.empty-pool-actions .quick-import-btn {
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
 .modal {
   position: fixed;
   inset: 0;

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..config import APIConfig
+
 
 @dataclass
 class FileAccessError(Exception):
@@ -16,10 +18,10 @@ class FileAccessError(Exception):
 class FileAccessService:
     """Resolve and validate file access under controlled roots."""
 
-    def __init__(self, *, local_root: Path, assets_root: Path, logo_path: Path) -> None:
-        self.local_root = local_root.resolve()
-        self.assets_root = assets_root.resolve()
-        self.logo_path = logo_path
+    def __init__(self, config: APIConfig) -> None:
+        self.local_dir = config.local_dir
+        self.assets_root = config.dashboard_assets_dir
+        self.logo_path = config.logo_path
 
     @staticmethod
     def _normalize_rel_path(value: str) -> str:
@@ -63,8 +65,8 @@ class FileAccessService:
         if not rel:
             raise FileAccessError("missing path", status=400)
 
-        target = (self.local_root / rel).resolve()
-        self._ensure_within(self.local_root, target, field="path")
+        target = (self.local_dir / rel).resolve()
+        self._ensure_within(self.local_dir, target, field="path")
         if not target.exists() or not target.is_file():
             raise FileAccessError("file not found", status=404)
         return target

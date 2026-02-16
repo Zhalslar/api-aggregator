@@ -41,6 +41,11 @@ let mainTab = PageHelpers.getDefaultMainTab();
 let state = { sites: [], apis: [] };
 let localCollections = [];
 let allSiteNames = [];
+const DEFAULT_POOL_FILE_BY_TYPE = Object.freeze({
+  site: "site_pool_default.json",
+  api: "api_pool_default.json",
+});
+const poolDefaultAutoImportTried = { site: false, api: false };
 let sitePagination = { page: sitePage, page_size: sitePageSize, total: 0, total_pages: 1, start: 0, end: 0 };
 let apiPagination = { page: apiPage, page_size: apiPageSize, total: 0, total_pages: 1, start: 0, end: 0 };
 let localPagination = { page: localPage, page_size: localPageSize, total: 0, total_pages: 1, start: 0, end: 0 };
@@ -346,12 +351,167 @@ function getDisplayedApiRows() {
   return pageItems.map((item) => ({ ...item }));
 }
 
+function normalizePoolType(poolType) {
+  return poolType === "api" ? "api" : "site";
+}
+
+function getDefaultPoolFileName(poolType) {
+  const safeType = normalizePoolType(poolType);
+  return DEFAULT_POOL_FILE_BY_TYPE[safeType];
+}
+
+async function listDefaultPoolFileNames() {
+  const data = await req("/api/pool/files");
+  const files = Array.isArray(data.files) ? data.files : [];
+  return new Set(
+    files
+      .map((item) => textValue(item?.name).trim())
+      .filter(Boolean)
+  );
+}
+
+async function importDefaultPoolFile(poolType, options = {}) {
+  const safeType = normalizePoolType(poolType);
+  const silent = Boolean(options.silent);
+  const defaultFileName = getDefaultPoolFileName(safeType);
+  const externalNames = options.fileNames instanceof Set ? options.fileNames : null;
+  const fileNames = externalNames || (await listDefaultPoolFileNames());
+  if (!fileNames.has(defaultFileName)) {
+    if (!silent) {
+      showNoticeModal(t("quick_import_default_missing", { file: defaultFileName }));
+    }
+    return null;
+  }
+  const result = await req(`/api/pool/import/${encodeURIComponent(safeType)}/path`, {
+    method: "POST",
+    body: JSON.stringify({ name: defaultFileName }),
+  });
+  if (!silent) {
+    const poolLabel = safeType === "api" ? t("api_pool") : t("site_pool");
+    showNoticeModal(
+      t("pool_import_result_summary", {
+        pool: poolLabel,
+        success: Number(result.imported || 0),
+        skipped: Number(result.skipped || 0),
+        failed: Number(result.failed || 0),
+      }),
+      "success"
+    );
+  }
+  return result;
+}
+
+function buildEmptyPoolHintCell(poolType, colspan) {
+  const safeType = normalizePoolType(poolType);
+  return `
+    <tr>
+      <td colspan="${colspan}" class="empty-cell">
+        <div class="empty-pool-actions">
+          <span>${escapeHtml(t("import_empty_hint"))}</span>
+          <button
+            type="button"
+            class="quick-import-btn"
+            onclick='onQuickImportDefaultPoolClick(this, "${safeType}")'
+          >${escapeHtml(t("quick_import_default"))}</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function buildNoDataHintCell(colspan) {
+  return `
+    <tr>
+      <td colspan="${colspan}" class="empty-cell">${escapeHtml(t("no_data"))}</td>
+    </tr>
+  `;
+}
+
+async function tryAutoImportDefaultPools() {
+  const pendingTypes = [];
+  if (!Array.isArray(state.sites) || state.sites.length === 0) {
+    if (!poolDefaultAutoImportTried.site) pendingTypes.push("site");
+  }
+  if (!Array.isArray(state.apis) || state.apis.length === 0) {
+    if (!poolDefaultAutoImportTried.api) pendingTypes.push("api");
+  }
+  if (!pendingTypes.length) return false;
+
+  let fileNames = new Set();
+  try {
+    fileNames = await listDefaultPoolFileNames();
+  } catch {
+    pendingTypes.forEach((type) => {
+      poolDefaultAutoImportTried[type] = true;
+    });
+    return false;
+  }
+
+  let importedAny = false;
+  for (const poolType of pendingTypes) {
+    poolDefaultAutoImportTried[poolType] = true;
+    try {
+      const result = await importDefaultPoolFile(poolType, {
+        silent: true,
+        fileNames,
+      });
+      if (Number(result?.imported || 0) > 0) {
+        importedAny = true;
+      }
+    } catch {}
+  }
+  return importedAny;
+}
+
+function applyPoolData(data) {
+  const resolvedDefaultPath = textValue(data.pool_io_default_dir).trim();
+  if (resolvedDefaultPath) {
+    poolIoManager?.setDefaultPath(resolvedDefaultPath);
+  }
+  state = {
+    sites: Array.isArray(data.sites) ? data.sites : [],
+    apis: Array.isArray(data.apis) ? data.apis : []
+  };
+  allSiteNames = Array.from(
+    new Set(
+      state.sites
+        .map((item) => textValue(item?.name).trim())
+        .filter(Boolean)
+    )
+  );
+  sitePage = Math.max(1, Number(sitePage || 1));
+  apiPage = Math.max(1, Number(apiPage || 1));
+  localStorage.setItem("api_aggregator_page_site", String(sitePage));
+  localStorage.setItem("api_aggregator_page_api", String(apiPage));
+  persistPageQueryState();
+}
+
 async function onPoolIoConfirmClick(btn) {
   await poolIoManager?.onConfirmClick(btn);
 }
 
 async function onPoolIoDeleteClick(btn) {
   await poolIoManager?.onDeleteClick(btn);
+}
+
+async function onQuickImportDefaultPoolClick(btn, poolType) {
+  await withButtonLoading(btn, async () => {
+    const safeType = normalizePoolType(poolType);
+    const result = await importDefaultPoolFile(safeType, { silent: false });
+    if (result) {
+      if (safeType === "api") {
+        // Reset API filter state so freshly imported entries are visible immediately.
+        apiSiteFilterInitialized = false;
+        apiSiteFilterOptionNames = [];
+        apiSiteFilterSelected = new Set();
+        apiTypeFilterInitialized = false;
+        apiTypeFilterOptionValues = [];
+        apiTypeFilterSelected = new Set();
+        setApiPageToFirst();
+      }
+      await loadPool({ includeLocalData: false, silent: true });
+    }
+  });
 }
 
 const noticeManager = createNoticeManager({ t, textValue });
@@ -1598,6 +1758,9 @@ function renderSites() {
           </td>
         </tr>
       `).join("");
+  const emptySiteRow = Array.isArray(state.sites) && state.sites.length === 0
+    ? buildEmptyPoolHintCell("site", 6)
+    : buildNoDataHintCell(6);
   document.getElementById("siteTable").innerHTML = `
         <tr>
           <th>${t("serial_no")}</th>
@@ -1607,7 +1770,7 @@ function renderSites() {
           <th class="sortable-head" onclick="onSiteHeaderSort('api_count')">${t("api_count")}<span class="sort-indicator">${PageHelpers.getSortIndicator(sortState.site, SITE_SORT_RULES.api_count)}</span></th>
           <th>${t("actions")}</th>
         </tr>
-        ${rows || `<tr><td colspan="6" class="empty-cell">${t("import_empty_hint")}</td></tr>`}
+        ${rows || emptySiteRow}
       `;
 }
 
@@ -1680,6 +1843,9 @@ function renderApis() {
           </td>
         </tr>
       `).join("");
+  const emptyApiRow = Array.isArray(state.apis) && state.apis.length === 0
+    ? buildEmptyPoolHintCell("api", 7)
+    : buildNoDataHintCell(7);
   document.getElementById("apiTable").innerHTML = `
         <tr>
           <th>${t("serial_no")}</th>
@@ -1690,7 +1856,7 @@ function renderApis() {
           <th class="sortable-head" onclick="onApiHeaderSort('keywords')">${t("keywords")}<span class="sort-indicator">${PageHelpers.getSortIndicator(sortState.api, API_SORT_RULES.keywords)}</span></th>
           <th>${t("actions")}</th>
         </tr>
-        ${rows || `<tr><td colspan="7" class="empty-cell">${t("import_empty_hint")}</td></tr>`}
+        ${rows || emptyApiRow}
       `;
 }
 
@@ -2093,26 +2259,12 @@ async function loadPool(options = {}) {
   const silent = Boolean(options.silent);
   try {
     const data = await req("/api/pool");
-    const resolvedDefaultPath = textValue(data.pool_io_default_dir).trim();
-    if (resolvedDefaultPath) {
-      poolIoManager?.setDefaultPath(resolvedDefaultPath);
+    applyPoolData(data);
+    const importedAny = await tryAutoImportDefaultPools();
+    if (importedAny) {
+      const refreshed = await req("/api/pool");
+      applyPoolData(refreshed);
     }
-    state = {
-      sites: Array.isArray(data.sites) ? data.sites : [],
-      apis: Array.isArray(data.apis) ? data.apis : []
-    };
-    allSiteNames = Array.from(
-      new Set(
-        state.sites
-          .map((item) => textValue(item?.name).trim())
-          .filter(Boolean)
-      )
-    );
-    sitePage = Math.max(1, Number(sitePage || 1));
-    apiPage = Math.max(1, Number(apiPage || 1));
-    localStorage.setItem("api_aggregator_page_site", String(sitePage));
-    localStorage.setItem("api_aggregator_page_api", String(apiPage));
-    persistPageQueryState();
     hasPoolLoaded = true;
     renderSites();
     renderApis();

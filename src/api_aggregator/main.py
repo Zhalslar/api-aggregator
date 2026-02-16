@@ -37,10 +37,10 @@ class APICoreApp:
     4. Call `await stop()` on framework shutdown.
     """
 
-    def __init__(self):
+    def __init__(self, *, data_dir: Path | None = None):
         """Initialize runtime components"""
 
-        self.cfg = APIConfig()
+        self.cfg = APIConfig(data_dir=data_dir)
         setup_default_logging()
         self.db = SQLiteDatabase(self.cfg)
 
@@ -53,29 +53,22 @@ class APICoreApp:
         self.dashboard_enabled = bool(self.cfg.dashboard.enabled)
         self.dashboard: DashboardServer | None = None
         if self.dashboard_enabled:
-            dashboard_assets_dir = (
-                Path(__file__).resolve().parent / "dashboard" / "assets"
-            )
             update_service = UpdateService(
                 restart_process_handler=self.restart_process
             )
             site_sync_service = SiteSyncService(self.api_mgr, self.site_mgr)
             api_delete_service = ApiDeleteService(self.api_mgr)
-            file_access_service = FileAccessService(
-                local_root=self.cfg.local_dir,
-                assets_root=dashboard_assets_dir,
-                logo_path=dashboard_assets_dir / "images" / "logo.png",
-            )
+            file_access_service = FileAccessService(self.cfg)
             runtime_control_service = RuntimeControlService(
                 restart_handler=self.restart_core_services,
                 restart_process_handler=self.restart_process,
             )
             api_test_service = ApiTestService(self.remote, self.local, self.api_mgr)
             pool_io_service = PoolIOService(
+                self.cfg,
                 self.db,
                 self.api_mgr,
                 self.site_mgr,
-                pool_files_dir=self.cfg.pool_files_dir,
                 resolve_site_name=site_sync_service.resolve_api_site_name,
                 sync_sites=site_sync_service.sync_all_api_sites,
             )

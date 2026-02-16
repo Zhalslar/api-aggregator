@@ -11,30 +11,24 @@ from ..database import SQLiteDatabase
 from ..entry import APIEntryManager, SiteEntryManager
 from ..model import ApiPayload, SitePayload
 
-DEFAULT_POOL_FILES_DIR = Path(APIConfig().pool_files_dir)
-
 
 class PoolIOService:
     """Import/export site pool and api pool data files."""
 
     def __init__(
         self,
+        config: APIConfig,
         db: SQLiteDatabase,
         api_mgr: APIEntryManager,
         site_mgr: SiteEntryManager,
         *,
-        pool_files_dir: Path | None = None,
         resolve_site_name: Callable[[str], str] | None = None,
         sync_sites: Callable[[], bool] | None = None,
     ) -> None:
         self.db = db
         self.api_mgr = api_mgr
         self.site_mgr = site_mgr
-        self.pool_files_dir = (
-            Path(pool_files_dir)
-            if pool_files_dir is not None
-            else DEFAULT_POOL_FILES_DIR
-        )
+        self.pool_files_dir = config.pool_files_dir
         self._resolve_site_name = resolve_site_name
         self._sync_sites = sync_sites
 
@@ -46,9 +40,8 @@ class PoolIOService:
         if any(sep in text for sep in ("/", "\\")) or text in {".", ".."}:
             raise ValueError("invalid file name")
         path = (self.pool_files_dir / text).resolve()
-        root = self.pool_files_dir.resolve()
         try:
-            path.relative_to(root)
+            path.relative_to(self.pool_files_dir)
         except ValueError as exc:
             raise ValueError("file path is outside pool files dir") from exc
         if path.suffix.lower() != ".json":
