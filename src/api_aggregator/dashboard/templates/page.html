@@ -128,6 +128,24 @@
             </select>
             <div id="sitePagerTop" class="pager"></div>
             <button class="site-add-btn" id="btnAddSite" onclick="openEditor('site')">Add Site</button>
+            <div class="pool-io-menu" id="sitePoolIoMenu">
+              <button
+                id="sitePoolIoMenuBtn"
+                class="pool-io-trigger icon-link-btn"
+                type="button"
+                onclick="togglePoolIoMenu(event, 'site')"
+                title="Import / Export"
+                aria-label="Import / Export"
+              >
+                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 10L12 15L17 10H7Z" />
+                </svg>
+              </button>
+              <div class="pool-io-dropdown">
+                <button type="button" onclick="openPoolIoModal('site', 'export')" data-i18n="export_file">Export File</button>
+                <button type="button" onclick="openPoolIoModal('site', 'import')" data-i18n="import_file">Import File</button>
+              </div>
+            </div>
           </div>
         </div>
         <table id="siteTable"></table>
@@ -169,6 +187,24 @@
             <div id="apiPagerTop" class="pager"></div>
             <button class="warn" id="btnTestAll" onclick="onTestAllClick(this)">Test All APIs</button>
             <button class="api-add-btn" id="btnAddApi" onclick="openEditor('api')">Add API</button>
+            <div class="pool-io-menu" id="apiPoolIoMenu">
+              <button
+                id="apiPoolIoMenuBtn"
+                class="pool-io-trigger icon-link-btn"
+                type="button"
+                onclick="togglePoolIoMenu(event, 'api')"
+                title="Import / Export"
+                aria-label="Import / Export"
+              >
+                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 10L12 15L17 10H7Z" />
+                </svg>
+              </button>
+              <div class="pool-io-dropdown">
+                <button type="button" onclick="openPoolIoModal('api', 'export')" data-i18n="export_file">Export File</button>
+                <button type="button" onclick="openPoolIoModal('api', 'import')" data-i18n="import_file">Import File</button>
+              </div>
+            </div>
           </div>
         </div>
         <table id="apiTable"></table>
@@ -341,10 +377,67 @@
     </div>
   </div>
 
-  <div class="undo-bar" id="undoBar">
-    <span id="undoText"></span>
-    <button id="btnUndoDelete" onclick="onUndoDeleteClick(this)">Undo</button>
-    <button class="btn-square" id="btnUndoClose" onclick="clearUndoNotice()">×</button>
+  <div class="modal" id="poolIoModal">
+    <div class="dialog pool-io-dialog">
+      <div class="row row-gap-bottom">
+        <strong id="poolIoModalTitle" data-i18n="pool_file_modal_title">File Operation</strong>
+        <span class="status" id="poolIoExportCount"></span>
+      </div>
+      <p class="pool-io-meta" id="poolIoModalMessage"></p>
+
+      <div id="poolIoFileWrap" class="pool-io-file-wrap">
+        <p class="pool-io-dir-path" id="poolIoDirPath"></p>
+        <div class="pool-io-default-list" id="poolIoDefaultList"></div>
+        <input
+          id="poolIoDirInput"
+          type="file"
+          accept=".json,application/json"
+          multiple
+          style="display: none"
+          onchange="onPoolIoDirChange(this)"
+        >
+      </div>
+
+      <div class="pool-io-progress-wrap" id="poolIoProgressWrap">
+        <div class="test-progress-track" aria-hidden="true">
+          <div class="test-progress-fill" id="poolIoProgressFill"></div>
+        </div>
+        <div class="pool-io-progress-text" id="poolIoProgressText"></div>
+      </div>
+
+      <div id="poolIoPathWrap" class="pool-io-path-wrap">
+        <label class="pool-io-field">
+          <span class="pool-io-field-label" data-i18n="export_path_label">Directory</span>
+          <input id="poolIoExportPath" class="text-input" type="text" data-i18n-placeholder="export_path_placeholder" />
+        </label>
+        <label class="pool-io-field">
+          <span class="pool-io-field-label" data-i18n="export_name_label">File Name</span>
+          <input id="poolIoExportName" class="text-input" type="text" data-i18n-placeholder="export_name_placeholder" />
+        </label>
+      </div>
+
+      <div class="row row-gap-top modal-actions">
+        <button
+          type="button"
+          id="btnPoolIoPickDir"
+          class="pool-io-pick-dir-left"
+          onclick="onPoolIoPickDirClick()"
+          data-i18n="import_pick_other_dir"
+        >Import Other Directory</button>
+        <button type="button" class="danger" id="btnPoolIoDelete" onclick="onPoolIoDeleteClick(this)" data-i18n="delete_file">Delete File</button>
+        <button class="primary" id="btnPoolIoConfirm" onclick="onPoolIoConfirmClick(this)" data-i18n="export_file">Export File</button>
+        <button id="btnPoolIoCancel" onclick="closePoolIoModal()" data-i18n="cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="undo-bar delete-confirm-bar" id="deleteConfirmBar">
+    <div class="delete-confirm-main">
+      <span id="deleteConfirmText"></span>
+      <span id="deleteConfirmList"></span>
+    </div>
+    <button class="danger" id="btnPendingDeleteConfirm" onclick="onConfirmPendingDeleteClick(this)" data-i18n="confirm_delete">Confirm Delete</button>
+    <button id="btnPendingDeleteClear" onclick="clearPendingDeleteSelection()" data-i18n="cancel">Cancel</button>
   </div>
 
   <script src="/assets/js/i18n.js"></script>
@@ -359,11 +452,10 @@
   <script src="/assets/js/shared/test_manager.js"></script>
   <script src="/assets/js/shared/local_data_manager.js"></script>
   <script src="/assets/js/shared/pool_actions_manager.js"></script>
+  <script src="/assets/js/shared/pool_io_manager.js"></script>
   <script src="/assets/js/shared/ui_state_manager.js"></script>
   <script src="/assets/js/shared/running_tasks_manager.js"></script>
   <script src="/assets/js/page.js"></script>
 </body>
 
 </html>
-
-

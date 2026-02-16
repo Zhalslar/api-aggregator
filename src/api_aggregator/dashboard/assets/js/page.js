@@ -11,6 +11,18 @@ let localSearchText = "";
 let apiSiteFilterSelected = new Set();
 let apiSiteFilterOptionNames = [];
 let apiSiteFilterInitialized = false;
+let apiTypeFilterSelected = new Set();
+let apiTypeFilterOptionValues = [];
+let apiTypeFilterInitialized = false;
+let localTypeFilterSelected = new Set();
+let localTypeFilterOptionValues = [];
+let localTypeFilterInitialized = false;
+const PAGE_QUERY_PARAMS = Object.freeze({
+  site: "sp",
+  api: "ap",
+  local: "lp",
+});
+
 function readPageFromUrl(paramName, fallback) {
   try {
     const raw = new URLSearchParams(window.location.search).get(paramName);
@@ -19,9 +31,9 @@ function readPageFromUrl(paramName, fallback) {
   } catch {}
   return fallback;
 }
-let sitePage = readPageFromUrl("sp", PageHelpers.getDefaultPage("api_aggregator_page_site"));
-let apiPage = readPageFromUrl("ap", PageHelpers.getDefaultPage("api_aggregator_page_api"));
-let localPage = readPageFromUrl("lp", PageHelpers.getDefaultPage("api_aggregator_page_local"));
+let sitePage = readPageFromUrl(PAGE_QUERY_PARAMS.site, PageHelpers.getDefaultPage("api_aggregator_page_site"));
+let apiPage = readPageFromUrl(PAGE_QUERY_PARAMS.api, PageHelpers.getDefaultPage("api_aggregator_page_api"));
+let localPage = readPageFromUrl(PAGE_QUERY_PARAMS.local, PageHelpers.getDefaultPage("api_aggregator_page_local"));
 let sitePageSize = PageHelpers.getDefaultPageSize("api_aggregator_page_size_site");
 let apiPageSize = PageHelpers.getDefaultPageSize("api_aggregator_page_size_api");
 let localPageSize = PageHelpers.getDefaultPageSize("api_aggregator_page_size_local");
@@ -57,13 +69,144 @@ const LOCAL_SORT_RULES = {
   size: ["size_asc", "size_desc"],
   updated: ["updated_desc", "updated_asc"]
 };
+const DATA_TYPE_OPTIONS = ["text", "image", "video", "audio"];
+const pendingDeleteState = {
+  site: new Map(),
+  api: new Map(),
+  localCollection: new Map(),
+};
+const PENDING_DELETE_KIND_MAP = Object.freeze({
+  site: "site",
+  api: "api",
+  local_collection: "localCollection",
+});
+
+function normalizeDeleteValue(value) {
+  return textValue(value).trim();
+}
+
+function getPendingDeleteMap(kind) {
+  const mapKey = PENDING_DELETE_KIND_MAP[kind];
+  return mapKey ? pendingDeleteState[mapKey] : null;
+}
+
+function rerenderAfterPendingDeleteChange() {
+  refreshPendingDeletePanel();
+  renderSites();
+  renderApis();
+  renderLocalData();
+}
+
+function makePendingDeleteKey(kind, payload) {
+  if (kind === "site" || kind === "api") {
+    return normalizeDeleteValue(payload?.name);
+  }
+  if (kind === "local_collection") {
+    return `${normalizeDeleteValue(payload?.type)}::${normalizeDeleteValue(payload?.name)}`;
+  }
+  return "";
+}
+
+function isPendingDelete(kind, payload) {
+  const key = makePendingDeleteKey(kind, payload);
+  const map = getPendingDeleteMap(kind);
+  return Boolean(key && map && map.has(key));
+}
+
+function buildPendingDeleteEntry(kind, key, payload) {
+  if (kind === "site") {
+    const cascadeApiNames = Array.isArray(payload?.cascadeApiNames)
+      ? payload.cascadeApiNames.map((item) => normalizeDeleteValue(item)).filter(Boolean)
+      : [];
+    return { name: key, cascadeApiNames };
+  }
+  if (kind === "api") {
+    return { name: key };
+  }
+  if (kind === "local_collection") {
+    return {
+      type: normalizeDeleteValue(payload?.type),
+      name: normalizeDeleteValue(payload?.name),
+    };
+  }
+  return null;
+}
+
+function togglePendingDelete(kind, payload) {
+  const key = makePendingDeleteKey(kind, payload);
+  const map = getPendingDeleteMap(kind);
+  if (!key || !map) return;
+
+  if (map.has(key)) {
+    map.delete(key);
+  } else {
+    const entry = buildPendingDeleteEntry(kind, key, payload);
+    if (!entry) return;
+    map.set(key, entry);
+  }
+
+  rerenderAfterPendingDeleteChange();
+}
+
+function clearPendingDeleteSelection() {
+  pendingDeleteState.site.clear();
+  pendingDeleteState.api.clear();
+  pendingDeleteState.localCollection.clear();
+  rerenderAfterPendingDeleteChange();
+}
+
+function getPendingDeleteSnapshot() {
+  const sites = Array.from(pendingDeleteState.site.values());
+  const directApis = Array.from(pendingDeleteState.api.values()).map((item) => item.name);
+  const apiSet = new Set(directApis);
+  sites.forEach((site) => {
+    (Array.isArray(site.cascadeApiNames) ? site.cascadeApiNames : []).forEach((name) => {
+      const normalized = normalizeDeleteValue(name);
+      if (normalized) apiSet.add(normalized);
+    });
+  });
+  return {
+    sites,
+    apis: Array.from(apiSet),
+    localTargets: Array.from(pendingDeleteState.localCollection.values()).map((item) => ({
+      type: normalizeDeleteValue(item?.type),
+      name: normalizeDeleteValue(item?.name),
+    })),
+    selectedCount: Object.values(pendingDeleteState).reduce((sum, map) => sum + map.size, 0),
+  };
+}
+
+function refreshPendingDeletePanel() {
+  const bar = document.getElementById("deleteConfirmBar");
+  const text = document.getElementById("deleteConfirmText");
+  const confirmBtn = document.getElementById("btnPendingDeleteConfirm");
+  const clearBtn = document.getElementById("btnPendingDeleteClear");
+  if (!bar || !text || !confirmBtn || !clearBtn) return;
+
+  const snapshot = getPendingDeleteSnapshot();
+  if (snapshot.selectedCount <= 0) {
+    bar.classList.remove("open");
+    text.textContent = "";
+    confirmBtn.textContent = t("confirm_delete");
+    clearBtn.textContent = t("cancel");
+    return;
+  }
+
+  text.textContent = t("confirm_delete_count", { count: snapshot.selectedCount });
+
+  const finalDeleteCount =
+    snapshot.sites.length + snapshot.apis.length + snapshot.localTargets.length;
+  confirmBtn.textContent = t("confirm_delete_count", { count: finalDeleteCount });
+  clearBtn.textContent = t("cancel");
+  bar.classList.add("open");
+}
 
 function persistPageQueryState() {
   try {
     const url = new URL(window.location.href);
-    url.searchParams.set("sp", String(Math.max(1, Number(sitePage || 1))));
-    url.searchParams.set("ap", String(Math.max(1, Number(apiPage || 1))));
-    url.searchParams.set("lp", String(Math.max(1, Number(localPage || 1))));
+    url.searchParams.set(PAGE_QUERY_PARAMS.site, String(Math.max(1, Number(sitePage || 1))));
+    url.searchParams.set(PAGE_QUERY_PARAMS.api, String(Math.max(1, Number(apiPage || 1))));
+    url.searchParams.set(PAGE_QUERY_PARAMS.local, String(Math.max(1, Number(localPage || 1))));
     window.history.replaceState(null, "", url.toString());
   } catch {}
 }
@@ -149,6 +292,68 @@ function toggleThemeMode() {
   updateThemeIcon();
 }
 
+let poolIoManager = null;
+
+function closePoolIoMenus() {
+  poolIoManager?.closeMenus();
+}
+
+function togglePoolIoMenu(event, poolType) {
+  poolIoManager?.toggleMenu(event, poolType);
+}
+
+function closePoolIoModal() {
+  poolIoManager?.closeModal();
+}
+
+function onPoolDefaultFileToggle(btn, encodedName) {
+  poolIoManager?.onDefaultFileToggle(btn, encodedName);
+}
+
+function onPoolIoPickDirClick() {
+  poolIoManager?.onPickDirClick();
+}
+
+function onPoolIoDirChange(input) {
+  poolIoManager?.onDirChange(input);
+}
+
+async function openPoolIoModal(poolType, mode) {
+  await poolIoManager?.openModal(poolType, mode);
+}
+
+function getDisplayedSiteRows() {
+  const filteredSites = PageHelpers.filterSites(
+    Array.isArray(state.sites) ? state.sites : [],
+    siteSearchText
+  );
+  const sortedSites = sortSites(filteredSites, sortState.site);
+  const paged = PageHelpers.paginateItems(sortedSites, sitePage, sitePageSize);
+  const pageItems = Array.isArray(paged.pageItems) ? paged.pageItems : [];
+  return pageItems.map((item) => ({ ...item }));
+}
+
+function getDisplayedApiRows() {
+  const searchedApis = PageHelpers.filterApis(
+    Array.isArray(state.apis) ? state.apis : [],
+    apiSearchText
+  );
+  const siteFilteredApis = filterApisBySite(searchedApis);
+  const typeFilteredApis = filterApisByType(siteFilteredApis);
+  const sortedApis = sortApis(typeFilteredApis, sortState.api);
+  const paged = PageHelpers.paginateItems(sortedApis, apiPage, apiPageSize);
+  const pageItems = Array.isArray(paged.pageItems) ? paged.pageItems : [];
+  return pageItems.map((item) => ({ ...item }));
+}
+
+async function onPoolIoConfirmClick(btn) {
+  await poolIoManager?.onConfirmClick(btn);
+}
+
+async function onPoolIoDeleteClick(btn) {
+  await poolIoManager?.onDeleteClick(btn);
+}
+
 const noticeManager = createNoticeManager({ t, textValue });
 const restartManager = createRestartManager({
   t,
@@ -193,6 +398,22 @@ const testManager = createTestManager({
   withButtonLoading,
   req,
   showNoticeModal,
+  getBatchTestNames: () => getDisplayedApiNames(),
+  getBatchTestRange: () => {
+    const query = textValue(apiSearchText).trim();
+    const selectedNames = Array.from(apiSiteFilterSelected).filter((name) =>
+      textValue(name).trim()
+    );
+    const totalOptions = Array.isArray(apiSiteFilterOptionNames)
+      ? apiSiteFilterOptionNames.length
+      : 0;
+    const useSiteFilter =
+      totalOptions > 0 && selectedNames.length > 0 && selectedNames.length < totalOptions;
+    return {
+      query,
+      site_names: useSiteFilter ? selectedNames : [],
+    };
+  },
 });
 const editorManager = createEditorManager({
   t,
@@ -264,10 +485,24 @@ const localDataManager = createLocalDataManager({
   getLocalPageSize: () => localPageSize,
   getSortState: () => sortState,
   localSortRules: LOCAL_SORT_RULES,
+  getLocalTypeFilterValues: () => {
+    const selected = Array.from(localTypeFilterSelected).filter((value) =>
+      textValue(value).trim()
+    );
+    const total = Array.isArray(localTypeFilterOptionValues)
+      ? localTypeFilterOptionValues.length
+      : 0;
+    if (total <= 0 || selected.length >= total) {
+      return [];
+    }
+    return selected;
+  },
   getLocalViewerState: () => localViewerState,
   setLocalViewerState: (nextState) => {
     localViewerState = nextState || { type: "", name: "", detail: null, pendingDeletes: new Set() };
   },
+  isPendingDelete,
+  togglePendingDelete,
 });
 const poolActionsManager = createPoolActionsManager({
   t,
@@ -287,6 +522,7 @@ const poolActionsManager = createPoolActionsManager({
   renderSites,
   renderApis,
   testEditorPayloadAndRender,
+  togglePendingDelete,
 });
 const uiStateManager = createUiStateManager({
   textValue,
@@ -346,6 +582,17 @@ const uiStateManager = createUiStateManager({
     renderSites();
     renderApis();
   },
+});
+poolIoManager = createPoolIoManager({
+  t,
+  req,
+  withButtonLoading,
+  textValue,
+  escapeHtml,
+  showNoticeModal,
+  loadPool,
+  getDisplayedApiRows,
+  getDisplayedSiteRows,
 });
 
 function updateRestartButtonState(btn = document.getElementById("restartIconBtn")) {
@@ -481,9 +728,21 @@ function applyI18n() {
   if (apiSiteFilterToggleAllText) {
     apiSiteFilterToggleAllText.textContent = t("all_sites");
   }
+  const apiTypeFilterToggleAllText = document.querySelector(
+    "#apiTypeFilterDropdown [data-i18n='all_types']"
+  );
+  if (apiTypeFilterToggleAllText) {
+    apiTypeFilterToggleAllText.textContent = t("all_types");
+  }
   const localSearch = document.getElementById("localSearch");
   if (localSearch) {
     localSearch.placeholder = t("local_search_placeholder");
+  }
+  const localTypeFilterToggleAllText = document.querySelector(
+    "#localTypeFilterDropdown [data-i18n='all_types']"
+  );
+  if (localTypeFilterToggleAllText) {
+    localTypeFilterToggleAllText.textContent = t("all_types");
   }
   const sitePageSizePicker = document.getElementById("sitePageSize");
   if (sitePageSizePicker) {
@@ -499,12 +758,56 @@ function applyI18n() {
   }
   document.getElementById("btnAddSite").textContent = t("add_site");
   document.getElementById("btnAddApi").textContent = t("add_api");
+  const sitePoolIoMenuBtn = document.getElementById("sitePoolIoMenuBtn");
+  if (sitePoolIoMenuBtn) {
+    const label = t("import_export");
+    sitePoolIoMenuBtn.title = label;
+    sitePoolIoMenuBtn.setAttribute("aria-label", label);
+  }
+  const apiPoolIoMenuBtn = document.getElementById("apiPoolIoMenuBtn");
+  if (apiPoolIoMenuBtn) {
+    const label = t("import_export");
+    apiPoolIoMenuBtn.title = label;
+    apiPoolIoMenuBtn.setAttribute("aria-label", label);
+  }
+  const poolIoModalTitle = document.getElementById("poolIoModalTitle");
+  if (poolIoModalTitle && !document.getElementById("poolIoModal")?.classList.contains("open")) {
+    poolIoModalTitle.textContent = t("pool_file_modal_title", { pool: t("site_pool") });
+  }
+  const poolIoExportCount = document.getElementById("poolIoExportCount");
+  if (poolIoExportCount && !document.getElementById("poolIoModal")?.classList.contains("open")) {
+    poolIoExportCount.style.display = "none";
+    poolIoExportCount.textContent = "";
+  }
+  const btnPoolIoConfirm = document.getElementById("btnPoolIoConfirm");
+  if (btnPoolIoConfirm && !document.getElementById("poolIoModal")?.classList.contains("open")) {
+    btnPoolIoConfirm.textContent = t("export_file");
+  }
+  const btnPoolIoCancel = document.getElementById("btnPoolIoCancel");
+  if (btnPoolIoCancel) {
+    btnPoolIoCancel.textContent = t("cancel");
+  }
+  const poolIoExportPath = document.getElementById("poolIoExportPath");
+  if (poolIoExportPath) {
+    poolIoExportPath.placeholder = t("export_path_placeholder");
+  }
+  const poolIoExportName = document.getElementById("poolIoExportName");
+  if (poolIoExportName) {
+    poolIoExportName.placeholder = t("export_name_placeholder");
+  }
+  const btnPoolIoPickDir = document.getElementById("btnPoolIoPickDir");
+  if (btnPoolIoPickDir) {
+    btnPoolIoPickDir.textContent = t("import_pick_other_dir");
+  }
+  const btnPoolIoDelete = document.getElementById("btnPoolIoDelete");
+  if (btnPoolIoDelete) {
+    btnPoolIoDelete.textContent = t("delete_file");
+  }
   document.getElementById("btnTestEditor").textContent = t("test_params");
   document.getElementById("btnSave").textContent = t("save");
   document.getElementById("btnCancel").textContent = t("cancel");
   document.getElementById("btnCloseTestModal").textContent = t("close");
   document.getElementById("btnCloseLocalDataModal").textContent = t("close");
-  document.getElementById("btnUndoDelete").textContent = t("undo");
   document.getElementById("btnRefreshLocalData").textContent = t("refresh");
   document.getElementById("btnUpdateConfirm").textContent = t("update_confirm_button");
   document.getElementById("btnUpdateCancel").textContent = t("cancel");
@@ -523,9 +826,11 @@ function applyI18n() {
   renderRunningTasks();
   refreshSingleRepeatButtonLabel();
   updateLocalDeleteConfirmButton();
-  refreshUndoText();
+  refreshPendingDeletePanel();
   refreshEditorI18n();
   updateApiSiteFilterButtonLabel();
+  updateApiTypeFilterButtonLabel();
+  updateLocalTypeFilterButtonLabel();
   renderLocalData();
 }
 
@@ -571,6 +876,14 @@ function boolText(value) {
 
 function formatItems(count) {
   return t("items_count", { count });
+}
+
+function getTypeOptionLabel(type) {
+  const normalized = textValue(type).trim().toLowerCase();
+  if (!normalized) return "";
+  const key = `data_type_${normalized}`;
+  const value = t(key);
+  return value === key ? normalized : value;
 }
 
 function getFieldValue(id) {
@@ -656,6 +969,13 @@ function refreshEditorI18n() {
   form.querySelectorAll("[data-list]").forEach((node) => {
     node.placeholder = t("value_name");
   });
+  const apiType = form.querySelector("#apiType");
+  if (apiType) {
+    Array.from(apiType.options || []).forEach((option) => {
+      const value = textValue(option?.value).trim().toLowerCase();
+      option.textContent = getTypeOptionLabel(value) || value;
+    });
+  }
 }
 
 function bindEditorAddTriggers(form) {
@@ -835,6 +1155,152 @@ function onApiSiteFilterOptionChange(siteName, checked) {
   renderApis();
 }
 
+function closeApiTypeFilterDropdown() {
+  const dropdown = document.getElementById("apiTypeFilterDropdown");
+  if (dropdown) {
+    dropdown.classList.remove("open");
+  }
+}
+
+function toggleApiTypeFilterDropdown(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const dropdown = document.getElementById("apiTypeFilterDropdown");
+  if (!dropdown) return;
+  const shouldOpen = !dropdown.classList.contains("open");
+  dropdown.classList.toggle("open", shouldOpen);
+}
+
+function getApiTypeFilterValues() {
+  const typeSet = new Set();
+  (Array.isArray(state.apis) ? state.apis : []).forEach((api) => {
+    const type = textValue(api?.type).trim().toLowerCase() || "text";
+    if (DATA_TYPE_OPTIONS.includes(type)) {
+      typeSet.add(type);
+    }
+  });
+  return DATA_TYPE_OPTIONS.filter((type) => typeSet.has(type));
+}
+
+function syncApiTypeFilterSelection(nextOptionValues) {
+  const optionValues = Array.isArray(nextOptionValues) ? nextOptionValues : [];
+  const optionSet = new Set(optionValues);
+  const wasAllSelected =
+    apiTypeFilterInitialized &&
+    apiTypeFilterOptionValues.length > 0 &&
+    apiTypeFilterSelected.size === apiTypeFilterOptionValues.length;
+
+  if (!apiTypeFilterInitialized) {
+    apiTypeFilterSelected = new Set(optionValues);
+    apiTypeFilterInitialized = true;
+    apiTypeFilterOptionValues = optionValues;
+    return;
+  }
+
+  const nextSelected = new Set(
+    Array.from(apiTypeFilterSelected).filter((value) => optionSet.has(value))
+  );
+  if (wasAllSelected) {
+    optionValues.forEach((value) => nextSelected.add(value));
+  }
+  apiTypeFilterSelected = nextSelected;
+  apiTypeFilterOptionValues = optionValues;
+}
+
+function updateApiTypeFilterButtonLabel() {
+  const btn = document.getElementById("apiTypeFilterBtn");
+  if (!btn) return;
+  const total = apiTypeFilterOptionValues.length;
+  const selected = apiTypeFilterSelected.size;
+  const label = t("api_type_filter");
+  if (!total) {
+    btn.textContent = `${label} (0/0)`;
+    return;
+  }
+  btn.textContent = `${label} (${selected}/${total})`;
+}
+
+function renderApiTypeFilter() {
+  const optionsWrap = document.getElementById("apiTypeFilterOptions");
+  const toggleAll = document.getElementById("apiTypeFilterToggleAll");
+  if (!optionsWrap || !toggleAll) return;
+
+  const optionValues = getApiTypeFilterValues();
+  syncApiTypeFilterSelection(optionValues);
+  const optionSet = new Set(optionValues);
+  apiTypeFilterSelected = new Set(
+    Array.from(apiTypeFilterSelected).filter((value) => optionSet.has(value))
+  );
+
+  optionsWrap.innerHTML = "";
+  optionValues.forEach((value) => {
+    const row = document.createElement("label");
+    row.className = "site-filter-option";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = apiTypeFilterSelected.has(value);
+    input.addEventListener("change", () => {
+      onApiTypeFilterOptionChange(value, input.checked);
+    });
+    const text = document.createElement("span");
+    text.textContent = getTypeOptionLabel(value);
+    row.appendChild(input);
+    row.appendChild(text);
+    optionsWrap.appendChild(row);
+  });
+
+  const selected = apiTypeFilterSelected.size;
+  const total = optionValues.length;
+  toggleAll.checked = total > 0 && selected === total;
+  toggleAll.indeterminate = selected > 0 && selected < total;
+  updateApiTypeFilterButtonLabel();
+}
+
+function onApiTypeFilterToggleAll(checked) {
+  if (checked) {
+    apiTypeFilterSelected = new Set(apiTypeFilterOptionValues);
+  } else {
+    apiTypeFilterSelected = new Set();
+  }
+  apiPage = 1;
+  localStorage.setItem("api_aggregator_page_api", String(apiPage));
+  persistPageQueryState();
+  renderApis();
+}
+
+function onApiTypeFilterOptionChange(typeValue, checked) {
+  const normalized = textValue(typeValue).trim().toLowerCase();
+  if (!normalized) return;
+  if (checked) {
+    apiTypeFilterSelected.add(normalized);
+  } else {
+    apiTypeFilterSelected.delete(normalized);
+  }
+  apiPage = 1;
+  localStorage.setItem("api_aggregator_page_api", String(apiPage));
+  persistPageQueryState();
+  renderApis();
+}
+
+function openApiPoolBySite(siteName) {
+  const normalized = textValue(decodeURIComponent(siteName || "")).trim();
+  if (!normalized) return;
+  const optionNames = getApiSiteFilterNames();
+  apiSiteFilterOptionNames = optionNames;
+  apiSiteFilterInitialized = true;
+  apiSiteFilterSelected = optionNames.includes(normalized)
+    ? new Set([normalized])
+    : new Set();
+  apiPage = 1;
+  localStorage.setItem("api_aggregator_page_api", String(apiPage));
+  persistPageQueryState();
+  closeApiSiteFilterDropdown();
+  switchMainTab("api");
+  renderApis();
+}
+
 function resolveApiSiteName(api) {
   const direct = textValue(api?.site).trim();
   if (direct) return direct;
@@ -868,6 +1334,150 @@ function filterApisBySite(items) {
   return safeItems.filter((api) =>
     apiSiteFilterSelected.has(resolveApiSiteName(api))
   );
+}
+
+function filterApisByType(items) {
+  const safeItems = Array.isArray(items) ? items : [];
+  const totalTypeOptions = apiTypeFilterOptionValues.length;
+  if (!totalTypeOptions) {
+    return safeItems;
+  }
+  if (apiTypeFilterSelected.size >= totalTypeOptions) {
+    return safeItems;
+  }
+  if (apiTypeFilterSelected.size <= 0) {
+    return [];
+  }
+  return safeItems.filter((api) => {
+    const type = textValue(api?.type).trim().toLowerCase() || "text";
+    return apiTypeFilterSelected.has(type);
+  });
+}
+
+function getDisplayedApiNames() {
+  return getDisplayedApiRows()
+    .map((api) => textValue(api?.name).trim())
+    .filter(Boolean);
+}
+
+function closeLocalTypeFilterDropdown() {
+  const dropdown = document.getElementById("localTypeFilterDropdown");
+  if (dropdown) {
+    dropdown.classList.remove("open");
+  }
+}
+
+function toggleLocalTypeFilterDropdown(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const dropdown = document.getElementById("localTypeFilterDropdown");
+  if (!dropdown) return;
+  const shouldOpen = !dropdown.classList.contains("open");
+  dropdown.classList.toggle("open", shouldOpen);
+}
+
+function getLocalTypeFilterValues() {
+  return [...DATA_TYPE_OPTIONS];
+}
+
+function syncLocalTypeFilterSelection(nextOptionValues) {
+  const optionValues = Array.isArray(nextOptionValues) ? nextOptionValues : [];
+  const optionSet = new Set(optionValues);
+  const wasAllSelected =
+    localTypeFilterInitialized &&
+    localTypeFilterOptionValues.length > 0 &&
+    localTypeFilterSelected.size === localTypeFilterOptionValues.length;
+
+  if (!localTypeFilterInitialized) {
+    localTypeFilterSelected = new Set(optionValues);
+    localTypeFilterInitialized = true;
+    localTypeFilterOptionValues = optionValues;
+    return;
+  }
+
+  const nextSelected = new Set(
+    Array.from(localTypeFilterSelected).filter((value) => optionSet.has(value))
+  );
+  if (wasAllSelected) {
+    optionValues.forEach((value) => nextSelected.add(value));
+  }
+  localTypeFilterSelected = nextSelected;
+  localTypeFilterOptionValues = optionValues;
+}
+
+function updateLocalTypeFilterButtonLabel() {
+  const btn = document.getElementById("localTypeFilterBtn");
+  if (!btn) return;
+  const total = localTypeFilterOptionValues.length;
+  const selected = localTypeFilterSelected.size;
+  const label = t("local_type_filter");
+  if (!total) {
+    btn.textContent = `${label} (0/0)`;
+    return;
+  }
+  btn.textContent = `${label} (${selected}/${total})`;
+}
+
+function renderLocalTypeFilter() {
+  const optionsWrap = document.getElementById("localTypeFilterOptions");
+  const toggleAll = document.getElementById("localTypeFilterToggleAll");
+  if (!optionsWrap || !toggleAll) return;
+
+  const optionValues = getLocalTypeFilterValues();
+  syncLocalTypeFilterSelection(optionValues);
+  const optionSet = new Set(optionValues);
+  localTypeFilterSelected = new Set(
+    Array.from(localTypeFilterSelected).filter((value) => optionSet.has(value))
+  );
+
+  optionsWrap.innerHTML = "";
+  optionValues.forEach((value) => {
+    const row = document.createElement("label");
+    row.className = "site-filter-option";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = localTypeFilterSelected.has(value);
+    input.addEventListener("change", () => {
+      onLocalTypeFilterOptionChange(value, input.checked);
+    });
+    const text = document.createElement("span");
+    text.textContent = getTypeOptionLabel(value);
+    row.appendChild(input);
+    row.appendChild(text);
+    optionsWrap.appendChild(row);
+  });
+
+  const selected = localTypeFilterSelected.size;
+  const total = optionValues.length;
+  toggleAll.checked = total > 0 && selected === total;
+  toggleAll.indeterminate = selected > 0 && selected < total;
+  updateLocalTypeFilterButtonLabel();
+}
+
+function onLocalTypeFilterToggleAll(checked) {
+  if (checked) {
+    localTypeFilterSelected = new Set(localTypeFilterOptionValues);
+  } else {
+    localTypeFilterSelected = new Set();
+  }
+  localPage = 1;
+  persistPageQueryState();
+  void loadLocalData();
+}
+
+function onLocalTypeFilterOptionChange(typeValue, checked) {
+  const normalized = textValue(typeValue).trim().toLowerCase();
+  if (!normalized) return;
+  if (checked) {
+    localTypeFilterSelected.add(normalized);
+  } else {
+    localTypeFilterSelected.delete(normalized);
+  }
+  localPage = 1;
+  persistPageQueryState();
+  void loadLocalData();
 }
 
 function compareTextAsc(a, b) {
@@ -984,12 +1594,20 @@ function renderSites() {
   });
 
   const rows = pageItems.map((s, i) => `
-        <tr>
+        <tr class="${
+          isPendingDelete("site", { name: textValue(s.name) }) ? "is-pending-delete-row" : ""
+        }">
           <td>${Math.max(0, Number(sitePagination.start || 0)) + i + 1}</td>
           <td><code class="name-code">${escapeHtml(s.name || "")}</code></td>
           <td class="url-cell">${renderSiteUrlCell(s.url || "")}</td>
           <td>${Number(s.timeout || 60)}</td>
-          <td>${Math.max(0, Number(s.api_count || 0))}</td>
+          <td>
+            <button
+              type="button"
+              class="table-link-btn"
+              onclick='openApiPoolBySite("${encodeURIComponent(s.name || "")}")'
+            >${Math.max(0, Number(s.api_count || 0))}</button>
+          </td>
           <td class="actions-cell">
             <label class="switch-toggle table-switch" title="${Boolean(s.enabled) ? t("disable_action") : t("enable_action")}">
               <input
@@ -1000,7 +1618,9 @@ function renderSites() {
               <span class="switch-slider"></span>
             </label>
             <button onclick='openSiteEditorByName("${encodeURIComponent(s.name || "")}")'>${t("edit")}</button>
-            <button class="danger" onclick='removeSite(this, "${encodeURIComponent(s.name || "")}")'>${t("delete")}</button>
+            <button class="danger ${
+              isPendingDelete("site", { name: textValue(s.name) }) ? "is-pending-delete" : ""
+            }" onclick='removeSite(this, "${encodeURIComponent(s.name || "")}")'>${t("delete")}</button>
           </td>
         </tr>
       `).join("");
@@ -1013,18 +1633,20 @@ function renderSites() {
           <th class="sortable-head" onclick="onSiteHeaderSort('api_count')">${t("api_count")}<span class="sort-indicator">${PageHelpers.getSortIndicator(sortState.site, SITE_SORT_RULES.api_count)}</span></th>
           <th>${t("actions")}</th>
         </tr>
-        ${rows || `<tr><td colspan="6" class="empty-cell">${t("no_data")}</td></tr>`}
+        ${rows || `<tr><td colspan="6" class="empty-cell">${t("import_empty_hint")}</td></tr>`}
       `;
 }
 
 function renderApis() {
   renderApiSiteFilter();
+  renderApiTypeFilter();
   const searchedApis = PageHelpers.filterApis(
     Array.isArray(state.apis) ? state.apis : [],
     apiSearchText
   );
   const siteFilteredApis = filterApisBySite(searchedApis);
-  const sortedApis = sortApis(siteFilteredApis, sortState.api);
+  const typeFilteredApis = filterApisByType(siteFilteredApis);
+  const sortedApis = sortApis(typeFilteredApis, sortState.api);
   const paged = PageHelpers.paginateItems(sortedApis, apiPage, apiPageSize);
   const pageItems = Array.isArray(paged.pageItems) ? paged.pageItems : [];
   apiPage = Math.max(1, Number(paged.page || apiPage || 1));
@@ -1054,7 +1676,9 @@ function renderApis() {
   });
 
   const rows = pageItems.map((a, i) => `
-        <tr>
+        <tr class="${
+          isPendingDelete("api", { name: textValue(a.name) }) ? "is-pending-delete-row" : ""
+        }">
           <td>${Math.max(0, Number(apiPagination.start || 0)) + i + 1}</td>
           <td><code class="name-code">${escapeHtml(a.name || "")}</code></td>
           <td class="url-cell"><div class="url-scroll" title="${escapeHtml(a.url || "")}">${escapeHtml(a.url || "")}</div></td>
@@ -1076,7 +1700,9 @@ function renderApis() {
             </label>
             <button class="warn" onclick='testSingleApi(this, "${encodeURIComponent(a.name || "")}")'>${t("test")}</button>
             <button onclick='openApiEditorByName("${encodeURIComponent(a.name || "")}")'>${t("edit")}</button>
-            <button class="danger" onclick='removeApi(this, "${encodeURIComponent(a.name || "")}")'>${t("delete")}</button>
+            <button class="danger ${
+              isPendingDelete("api", { name: textValue(a.name) }) ? "is-pending-delete" : ""
+            }" onclick='removeApi(this, "${encodeURIComponent(a.name || "")}")'>${t("delete")}</button>
           </td>
         </tr>
       `).join("");
@@ -1090,7 +1716,7 @@ function renderApis() {
           <th class="sortable-head" onclick="onApiHeaderSort('keywords')">${t("keywords")}<span class="sort-indicator">${PageHelpers.getSortIndicator(sortState.api, API_SORT_RULES.keywords)}</span></th>
           <th>${t("actions")}</th>
         </tr>
-        ${rows || `<tr><td colspan="7" class="empty-cell">${t("no_data")}</td></tr>`}
+        ${rows || `<tr><td colspan="7" class="empty-cell">${t("import_empty_hint")}</td></tr>`}
       `;
 }
 
@@ -1133,16 +1759,18 @@ function formatKeywordsCell(keywords) {
 function formatTypeCell(type) {
   const raw = textValue(type).trim().toLowerCase() || "text";
   const typeMap = {
-    text: { symbol: "T", label: "text" },
-    image: { symbol: "I", label: "image" },
-    video: { symbol: "V", label: "video" },
-    audio: { symbol: "A", label: "audio" }
+    text: { symbol: "T" },
+    image: { symbol: "I" },
+    video: { symbol: "V" },
+    audio: { symbol: "A" }
   };
-  const meta = typeMap[raw] || { symbol: "?", label: raw || "unknown" };
+  const fallbackLabel = raw || "unknown";
+  const localizedLabel = getTypeOptionLabel(raw) || fallbackLabel;
+  const meta = typeMap[raw] || { symbol: "?" };
   return `
-        <span class="type-chip type-${escapeHtml(raw)}" title="${escapeHtml(meta.label)}">
+        <span class="type-chip type-${escapeHtml(raw)}" title="${escapeHtml(localizedLabel)}">
           <span class="type-chip-symbol">${escapeHtml(meta.symbol)}</span>
-          <span>${escapeHtml(meta.label)}</span>
+          <span>${escapeHtml(localizedLabel)}</span>
         </span>
       `;
 }
@@ -1152,6 +1780,7 @@ function formatLocalType(type) {
 }
 
 function renderLocalData() {
+  renderLocalTypeFilter();
   localDataManager.renderLocalData();
 }
 
@@ -1163,7 +1792,7 @@ function getPendingDeleteSet() {
   return localDataManager.getPendingDeleteSet();
 }
 
-function makePendingDeleteKey(type, index, path) {
+function makeLocalItemPendingDeleteKey(type, index, path) {
   return localDataManager.makePendingDeleteKey(type, index, path);
 }
 
@@ -1335,20 +1964,49 @@ async function onConfirmLocalDataDeleteClick(btn) {
   await localDataManager.onConfirmLocalDataDeleteClick(btn);
 }
 
-function clearUndoNotice() {
-  poolActionsManager.clearUndoNotice();
-}
-
-function refreshUndoText() {
-  poolActionsManager.refreshUndoText();
-}
-
-function showUndoNotice(kind, payload) {
-  poolActionsManager.showUndoNotice(kind, payload);
-}
-
-async function onUndoDeleteClick(btn) {
-  await poolActionsManager.onUndoDeleteClick(btn);
+async function onConfirmPendingDeleteClick(btn) {
+  const snapshot = getPendingDeleteSnapshot();
+  if (snapshot.selectedCount <= 0) {
+    refreshPendingDeletePanel();
+    return;
+  }
+  await withButtonLoading(btn, async () => {
+    try {
+      if (snapshot.apis.length > 0) {
+        await req("/api/api/batch", {
+          method: "DELETE",
+          body: JSON.stringify({ names: snapshot.apis }),
+        });
+      }
+      if (snapshot.sites.length > 0) {
+        await req("/api/site/batch", {
+          method: "DELETE",
+          body: JSON.stringify({ names: snapshot.sites.map((item) => item.name) }),
+        });
+      }
+      if (snapshot.localTargets.length > 0) {
+        await req("/api/local-data/batch", {
+          method: "DELETE",
+          body: JSON.stringify({ targets: snapshot.localTargets }),
+        });
+        const viewingType = textValue(localViewerState?.type).trim();
+        const viewingName = textValue(localViewerState?.name).trim();
+        const removedViewingCollection = snapshot.localTargets.some(
+          (item) =>
+            textValue(item?.type).trim() === viewingType &&
+            textValue(item?.name).trim() === viewingName
+        );
+        if (removedViewingCollection) {
+          closeLocalDataModal();
+        }
+      }
+      clearPendingDeleteSelection();
+      await loadPool({ includeLocalData: false });
+      await loadLocalData();
+    } catch (err) {
+      showNoticeModal(err.message || String(err));
+    }
+  });
 }
 
 async function toggleSiteEnabled(btn, name, nextEnabled) {
@@ -1408,13 +2066,22 @@ function applyApiValidityBatch(names, valid) {
   return testManager.applyApiValidityBatch(names, valid);
 }
 
-async function testApisStream(names = [], task = null) {
-  await testManager.testApisStream(names, task);
+async function testApisStream(names = [], task = null, range = null) {
+  await testManager.testApisStream(names, task, range);
 }
 
 async function onTestAllClick(btn) {
   await withButtonLoading(btn, async () => {
-    await testApisStream([], createRunningTask("batch", t("test_all_title")));
+    const visibleNames = getDisplayedApiNames();
+    if (!visibleNames.length) {
+      showNoticeModal(t("import_empty_hint"));
+      return;
+    }
+    await testApisStream(
+      visibleNames,
+      createRunningTask("batch", t("test_all_title")),
+      null
+    );
   });
 }
 
@@ -1452,6 +2119,10 @@ async function loadPool(options = {}) {
   const silent = Boolean(options.silent);
   try {
     const data = await req("/api/pool");
+    const resolvedDefaultPath = textValue(data.pool_io_default_dir).trim();
+    if (resolvedDefaultPath) {
+      poolIoManager?.setDefaultPath(resolvedDefaultPath);
+    }
     state = {
       sites: Array.isArray(data.sites) ? data.sites : [],
       apis: Array.isArray(data.apis) ? data.apis : []
@@ -1488,13 +2159,35 @@ window.addEventListener("resize", () => {
 });
 
 document.addEventListener("click", (event) => {
-  const wrap = document.getElementById("apiSiteFilterWrap");
-  if (!wrap) return;
   const target = event.target;
-  if (target instanceof Node && wrap.contains(target)) {
-    return;
+  const apiSiteWrap = document.getElementById("apiSiteFilterWrap");
+  const apiTypeWrap = document.getElementById("apiTypeFilterWrap");
+  const localTypeWrap = document.getElementById("localTypeFilterWrap");
+  if (apiSiteWrap && target instanceof Node && !apiSiteWrap.contains(target)) {
+    closeApiSiteFilterDropdown();
   }
-  closeApiSiteFilterDropdown();
+  if (apiTypeWrap && target instanceof Node && !apiTypeWrap.contains(target)) {
+    closeApiTypeFilterDropdown();
+  }
+  if (localTypeWrap && target instanceof Node && !localTypeWrap.contains(target)) {
+    closeLocalTypeFilterDropdown();
+  }
+
+  const siteMenu = document.getElementById("sitePoolIoMenu");
+  const siteBtn = document.getElementById("sitePoolIoMenuBtn");
+  const apiMenu = document.getElementById("apiPoolIoMenu");
+  const apiBtn = document.getElementById("apiPoolIoMenuBtn");
+  const inSiteMenu = target instanceof Node && (
+    (siteMenu && siteMenu.contains(target)) ||
+    (siteBtn && siteBtn.contains(target))
+  );
+  const inApiMenu = target instanceof Node && (
+    (apiMenu && apiMenu.contains(target)) ||
+    (apiBtn && apiBtn.contains(target))
+  );
+  if (!inSiteMenu && !inApiMenu) {
+    closePoolIoMenus();
+  }
 });
 
 setTheme(currentTheme);

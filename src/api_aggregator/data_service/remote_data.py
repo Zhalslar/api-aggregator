@@ -1,6 +1,7 @@
 import asyncio
 from collections import defaultdict
-from typing import Any, AsyncIterator, cast
+from collections.abc import Awaitable, Callable
+from typing import Any, AsyncIterator
 
 from aiohttp import ClientSession, ClientTimeout
 
@@ -11,7 +12,6 @@ from .request_result import RequestResult
 
 
 class RemoteDataService:
-
     def __init__(
         self,
         config: APIConfig,
@@ -156,6 +156,9 @@ class RemoteDataService:
     async def stream_test_apis(
         self,
         entries: list[APIEntry] | None = None,
+        persist_valid_result: (
+            Callable[[APIEntry, RequestResult], Awaitable[None]] | None
+        ) = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """
         Batch test APIs and yield progress events one by one.
@@ -190,22 +193,16 @@ class RemoteDataService:
             "completed": completed,
         }
 
-        queue: asyncio.Queue[tuple[APIEntry | None, RequestResult | Exception | None]] = (
-            asyncio.Queue()
-        )
+        queue: asyncio.Queue[
+            tuple[APIEntry | None, RequestResult | Exception | None]
+        ] = asyncio.Queue()
 
         async def site_worker(site_entries: list[APIEntry]) -> None:
             for index, entry in enumerate(site_entries):
                 try:
-                    headers, params, timeout = self._build_request_args(entry)
-                    result = await self._request(
-                        entry.url,
-                        headers=headers,
-                        params=params,
-                        timeout=timeout,
-                    )
+                    result = await self.get_data(entry)
                     await queue.put((entry, result))
-                except Exception as exc:  # defensive, _request normally absorbs errors
+                except Exception as exc:
                     await queue.put((entry, exc))
 
                 has_more = index < len(site_entries) - 1
@@ -222,6 +219,19 @@ class RemoteDataService:
 
         completed_workers = 0
         total_workers = len(site_workers)
+        persist_tasks: set[asyncio.Task[None]] = set()
+
+        async def run_persist(entry: APIEntry, res: RequestResult) -> None:
+            if persist_valid_result is None:
+                return
+            try:
+                await persist_valid_result(entry, res)
+            except Exception as exc:
+                logger.warning(
+                    "[api_aggregator] batch persist failed name=%s: %s",
+                    entry.name,
+                    exc,
+                )
 
         while completed_workers < total_workers:
             entry, result = await queue.get()
@@ -247,10 +257,14 @@ class RemoteDataService:
                 }
                 continue
 
-            res = cast(RequestResult, result)
+            res = result
             is_valid = res.is_valid()
             if is_valid:
                 succeeded.add(entry.name)
+                if persist_valid_result is not None:
+                    task = asyncio.create_task(run_persist(entry, res))
+                    persist_tasks.add(task)
+                    task.add_done_callback(lambda t: persist_tasks.discard(t))
 
             yield {
                 "event": "progress",

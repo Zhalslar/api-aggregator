@@ -19,10 +19,13 @@ function createLocalDataManager(deps) {
     getLocalPage,
     setLocalPage,
     getLocalPageSize,
+    getLocalTypeFilterValues,
     getSortState,
     localSortRules,
     getLocalViewerState,
     setLocalViewerState,
+    isPendingDelete,
+    togglePendingDelete,
   } = deps;
 
   function getPendingDeleteSet() {
@@ -223,16 +226,25 @@ function createLocalDataManager(deps) {
       page: getLocalPage(),
       totalPages: pagination.total_pages,
       total: pagination.total,
-      start: pagination.total > 0 ? pagination.start + 1 : 0,
+      start: pagination.total > 0 ? pagination.start : 0,
       end: pagination.total > 0 ? pagination.end : 0,
       onPageChange: "onLocalPageChange",
     });
 
+    const serialBase = pagination.total > 0 ? Math.max(1, Number(pagination.start || 1)) : 0;
+
     const rows = pageItems
       .map(
         (item, index) => `
-        <tr>
-          <td>${pagination.start + index + 1}</td>
+        <tr class="${
+          isPendingDelete("local_collection", {
+            type: textValue(item.type),
+            name: textValue(item.name),
+          })
+            ? "is-pending-delete-row"
+            : ""
+        }">
+          <td>${serialBase + index}</td>
           <td><code class="name-code">${escapeHtml(textValue(item.name))}</code></td>
           <td>${formatLocalType(item.type)}</td>
           <td>${Number(item.count || 0)}</td>
@@ -242,7 +254,14 @@ function createLocalDataManager(deps) {
             <button onclick='openLocalDataViewer(this, "${encodeURIComponent(
               textValue(item.type)
             )}", "${encodeURIComponent(textValue(item.name))}")'>${t("view")}</button>
-            <button class="danger" onclick='removeLocalCollection(this, "${encodeURIComponent(
+            <button class="danger ${
+              isPendingDelete("local_collection", {
+                type: textValue(item.type),
+                name: textValue(item.name),
+              })
+                ? "is-pending-delete"
+                : ""
+            }" onclick='removeLocalCollection(this, "${encodeURIComponent(
               textValue(item.type)
             )}", "${encodeURIComponent(textValue(item.name))}")'>${t("delete")}</button>
           </td>
@@ -285,6 +304,12 @@ function createLocalDataManager(deps) {
         search: textValue(getLocalSearchText()).trim(),
         sort: textValue(getSortState().local || "name_asc"),
       });
+      const typeValues = Array.isArray(getLocalTypeFilterValues?.())
+        ? getLocalTypeFilterValues()
+        : [];
+      if (typeValues.length) {
+        params.set("types", typeValues.join(","));
+      }
       const data = await req(`/api/local-data?${params.toString()}`);
       const collections = Array.isArray(data?.collections) ? data.collections : [];
       setLocalCollections(collections);
@@ -314,9 +339,18 @@ function createLocalDataManager(deps) {
       try {
         const decodedType = decodeURIComponent(type || "");
         const decodedName = decodeURIComponent(name || "");
-        const detail = await req(
-          `/api/local-data/${encodeURIComponent(decodedType)}/${encodeURIComponent(decodedName)}`
-        );
+        const result = await req("/api/local-data/items/batch", {
+          method: "POST",
+          body: JSON.stringify({
+            targets: [{ type: decodedType, name: decodedName }],
+          }),
+        });
+        const detail = Array.isArray(result?.success) && result.success.length
+          ? result.success[0].detail
+          : null;
+        if (!detail) {
+          throw new Error(t("no_data"));
+        }
         setLocalViewerState({
           type: decodedType,
           name: decodedName,
@@ -334,23 +368,18 @@ function createLocalDataManager(deps) {
   }
 
   async function removeLocalCollection(btn, type, name) {
-    await withButtonLoading(btn, async () => {
-      try {
-        const decodedType = decodeURIComponent(type || "");
-        const decodedName = decodeURIComponent(name || "");
-        await req(
-          `/api/local-data/${encodeURIComponent(decodedType)}/${encodeURIComponent(decodedName)}`,
-          { method: "DELETE" }
-        );
-        const state = getLocalViewerState();
-        if (textValue(state.type) === decodedType && textValue(state.name) === decodedName) {
-          closeLocalDataModal();
-        }
-        await loadLocalData();
-      } catch (err) {
-        showNoticeModal(err.message || String(err));
-      }
-    });
+    void btn;
+    try {
+      const decodedType = decodeURIComponent(type || "");
+      const decodedName = decodeURIComponent(name || "");
+      if (!decodedType || !decodedName) return;
+      togglePendingDelete("local_collection", {
+        type: decodedType,
+        name: decodedName,
+      });
+    } catch (err) {
+      showNoticeModal(err.message || String(err));
+    }
   }
 
   function removeLocalItem(_, type, __, index, path) {
@@ -386,18 +415,25 @@ function createLocalDataManager(deps) {
           return { path: key.startsWith("path:") ? key.slice(5) : key };
         });
 
-        await req("/api/local-data-item", {
+        await req("/api/local-data-item/batch", {
           method: "DELETE",
           body: JSON.stringify({
-            type: decodedType,
-            name: decodedName,
-            items,
+            targets: [{ type: decodedType, name: decodedName, items }],
           }),
         });
 
-        const detail = await req(
-          `/api/local-data/${encodeURIComponent(decodedType)}/${encodeURIComponent(decodedName)}`
-        );
+        const result = await req("/api/local-data/items/batch", {
+          method: "POST",
+          body: JSON.stringify({
+            targets: [{ type: decodedType, name: decodedName }],
+          }),
+        });
+        const detail = Array.isArray(result?.success) && result.success.length
+          ? result.success[0].detail
+          : null;
+        if (!detail) {
+          throw new Error(t("no_data"));
+        }
         setLocalViewerState({
           ...state,
           detail,

@@ -26,9 +26,7 @@ class APIConfig:
         self.local_dir = self.data_dir / "local"
         self.local_dir.mkdir(parents=True, exist_ok=True)
 
-        self.presets_dir = Path("presets")
-        self.builtin_sites_file = self.presets_dir / "builtin_sites.json"
-        self.builtin_apis_file = self.presets_dir / "builtin_apis.json"
+        self.pool_files_dir = Path("pool_files")
 
         self.default_request_timeout = 60
         self.default_request_headers = {
@@ -39,4 +37,3 @@ class APIConfig:
             ),
             "Accept": "*/*",
         }
-

@@ -466,7 +466,7 @@ h1 {
 }
 
 .pool-search-input {
-  width: min(280px, 36vw);
+  width: min(210px, 27vw);
 }
 
 .pager {
@@ -481,6 +481,62 @@ h1 {
 
 .site-filter {
   position: relative;
+}
+
+.pool-io-menu {
+  position: relative;
+}
+
+.pool-io-trigger {
+  min-height: 42px;
+  min-width: 42px;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.pool-io-trigger:hover {
+  background: color-mix(in oklab, var(--btn-bg) 50%, transparent);
+}
+
+.pool-io-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 35;
+  display: none;
+  min-width: 140px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--panel) 96%, var(--bg) 4%);
+  box-shadow: 0 12px 28px color-mix(in oklab, var(--overlay) 30%, transparent);
+  padding: 8px;
+  gap: 6px;
+}
+
+.pool-io-dropdown.open {
+  display: flex;
+  flex-direction: column;
+}
+
+.pool-io-menu.open .pool-io-dropdown {
+  display: flex;
+  flex-direction: column;
+}
+
+.pool-io-dropdown button {
+  width: 100%;
+  text-align: left;
+  min-height: 36px;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 0;
+  background: transparent;
+}
+
+.pool-io-dropdown button:hover {
+  background: color-mix(in oklab, var(--btn-bg) 55%, transparent);
 }
 
 .site-filter-btn {
@@ -651,6 +707,27 @@ td {
   font-size: 13px;
 }
 
+.table-link-btn {
+  border: 0;
+  background: transparent;
+  color: var(--btn-add-border);
+  padding: 0;
+  min-height: 0;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.table-link-btn:hover {
+  color: color-mix(in oklab, var(--btn-add-border) 78%, var(--text) 22%);
+}
+
+.table-link-btn:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--btn-add-border) 60%, white 40%);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 #apiTable th:nth-child(4),
 #apiTable th:nth-child(5),
 #apiTable th:nth-child(6),
@@ -766,15 +843,29 @@ code.name-code {
   color: var(--text);
 }
 
-.field > span.field-add-trigger {
+.field-label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.field-note {
+  color: color-mix(in oklab, var(--muted) 84%, transparent);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.field .field-add-trigger {
   cursor: pointer;
   user-select: none;
   text-decoration: underline dotted color-mix(in oklab, var(--line) 65%, transparent);
   text-underline-offset: 3px;
+  width: fit-content;
 }
 
-.field > span.field-add-trigger:hover,
-.field > span.field-add-trigger:focus-visible {
+.field .field-add-trigger:hover,
+.field .field-add-trigger:focus-visible {
   color: var(--btn-add-text);
   text-decoration-color: var(--btn-add-border);
 }
@@ -782,6 +873,12 @@ code.name-code {
 .field-value {
   min-width: 0;
   width: min(680px, 100%);
+}
+
+.field-divider {
+  width: min(680px, 100%);
+  border-top: 1px dashed color-mix(in oklab, var(--line) 78%, transparent);
+  opacity: 0.9;
 }
 
 .collection-box {
@@ -1032,7 +1129,7 @@ textarea {
 .kv-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
   gap: 8px;
   margin-top: 8px;
   padding-right: 20px;
@@ -1257,6 +1354,25 @@ textarea {
   font-size: 13px;
 }
 
+.delete-confirm-bar {
+  max-width: min(420px, calc(100vw - 40px));
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.delete-confirm-main {
+  display: none;
+}
+
+#deleteConfirmText {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#deleteConfirmList {
+  display: none;
+}
+
 .test-dialog {
   width: min(860px, 100%);
 }
@@ -1275,6 +1391,149 @@ textarea {
   width: min(560px, 100%);
   padding: 20px 22px;
   border-radius: 14px;
+}
+
+.site-delete-dialog {
+  width: min(680px, 100%);
+}
+
+.pool-io-dialog {
+  width: min(540px, 100%);
+}
+
+.pool-io-file-wrap {
+  margin-top: 4px;
+}
+
+.pool-io-dir-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.pool-io-dir-path {
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+  word-break: break-all;
+  opacity: 0.82;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.pool-io-meta {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.pool-io-pick-dir-left {
+  margin-right: auto;
+}
+
+.pool-io-default-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+  max-height: min(28vh, 240px);
+  overflow: auto;
+  border: 1px solid color-mix(in oklab, var(--line) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--panel) 95%, var(--bg) 5%);
+  padding: 6px;
+}
+
+.pool-io-default-item {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.pool-io-item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pool-io-item-check {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  pointer-events: none;
+}
+
+.pool-io-default-item:hover {
+  background: color-mix(in oklab, var(--btn-bg) 55%, transparent);
+}
+
+.pool-io-default-item.is-selected {
+  background: color-mix(in oklab, var(--btn-add-bg) 42%, transparent);
+  color: var(--btn-add-text);
+}
+
+.pool-io-progress-wrap {
+  display: none;
+  gap: 6px;
+}
+
+.pool-io-progress-wrap.open {
+  display: grid;
+}
+
+.pool-io-progress-text {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pool-io-path-wrap {
+  margin-top: 8px;
+}
+
+.pool-io-field {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  margin: 0;
+}
+
+.pool-io-field-label {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pool-io-path-wrap .pool-io-field + .pool-io-field {
+  margin-top: 8px;
+}
+
+.site-delete-api-list {
+  max-height: min(42vh, 300px);
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.site-delete-api-list .test-log-item {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .restart-dialog strong {
@@ -1549,6 +1808,16 @@ textarea {
 .local-row-compact.is-pending-delete .local-row-label,
 .local-item-row.is-pending-delete .local-item-meta {
   text-decoration: line-through;
+}
+
+tr.is-pending-delete-row td {
+  background: color-mix(in oklab, #ef4444 12%, transparent);
+}
+
+button.danger.is-pending-delete {
+  border-color: #ef4444;
+  background: color-mix(in oklab, #ef4444 28%, var(--btn-danger-bg) 72%);
+  box-shadow: 0 0 0 1px color-mix(in oklab, #ef4444 70%, transparent) inset;
 }
 
 .local-row-main {

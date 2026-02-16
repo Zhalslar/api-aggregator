@@ -4,6 +4,7 @@ import asyncio
 import os
 import sys
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from .config import APIConfig
 from .dashboard import DashboardServer
@@ -13,6 +14,15 @@ from .entry import APIEntry, APIEntryManager, SiteEntryManager
 from .log import logger, setup_default_logging
 from .model import DataResource
 from .scheduler import APISchedulerService
+from .service import (
+    ApiDeleteService,
+    ApiTestService,
+    FileAccessService,
+    PoolIOService,
+    RuntimeControlService,
+    SiteSyncService,
+    UpdateService,
+)
 
 CronEntryHandler = Callable[[APIEntry], Awaitable[None]]
 
@@ -43,6 +53,32 @@ class APICoreApp:
         self.dashboard_enabled = bool(self.cfg.dashboard.enabled)
         self.dashboard: DashboardServer | None = None
         if self.dashboard_enabled:
+            dashboard_assets_dir = (
+                Path(__file__).resolve().parent / "dashboard" / "assets"
+            )
+            update_service = UpdateService(
+                restart_process_handler=self.restart_process
+            )
+            site_sync_service = SiteSyncService(self.api_mgr, self.site_mgr)
+            api_delete_service = ApiDeleteService(self.api_mgr)
+            file_access_service = FileAccessService(
+                local_root=self.cfg.local_dir,
+                assets_root=dashboard_assets_dir,
+                logo_path=dashboard_assets_dir / "images" / "logo.png",
+            )
+            runtime_control_service = RuntimeControlService(
+                restart_handler=self.restart_core_services,
+                restart_process_handler=self.restart_process,
+            )
+            api_test_service = ApiTestService(self.remote, self.local, self.api_mgr)
+            pool_io_service = PoolIOService(
+                self.db,
+                self.api_mgr,
+                self.site_mgr,
+                pool_files_dir=self.cfg.pool_files_dir,
+                resolve_site_name=site_sync_service.resolve_api_site_name,
+                sync_sites=site_sync_service.sync_all_api_sites,
+            )
             self.dashboard = DashboardServer(
                 self.cfg,
                 self.db,
@@ -50,8 +86,13 @@ class APICoreApp:
                 self.local,
                 self.api_mgr,
                 self.site_mgr,
-                restart_handler=self.restart_core_services,
-                restart_process_handler=self.restart_process,
+                update_service,
+                site_sync_service,
+                api_delete_service,
+                file_access_service,
+                runtime_control_service,
+                api_test_service,
+                pool_io_service,
             )
 
         self._started = False
@@ -69,15 +110,17 @@ class APICoreApp:
             return
         logger.info("[app] starting api-aggregator")
         logger.info("[app] data dir: %s", self.cfg.data_dir)
-        self.db.reload_from_presets()
+        self.db.reload_from_database()
         logger.info(
-            "[app] presets loaded into sqlite: sites=%d, apis=%d",
+            "[app] database loaded: sites=%d, apis=%d",
             len(self.db.site_pool),
             len(self.db.api_pool),
         )
-        await self.api_mgr.initialize()
+        await asyncio.gather(
+            self.api_mgr.initialize(),
+            self.site_mgr.initialize(),
+        )
         logger.info("[app] api entries: %d", len(self.api_mgr.entries))
-        await self.site_mgr.initialize()
         logger.info("[app] site entries: %d", len(self.site_mgr.entries))
         self.scheduler.start()
         logger.info("[app] scheduler started")
@@ -135,8 +178,10 @@ class APICoreApp:
             logger.info("[app] restarting core services")
             await self.remote.close()
             self.db.reload_from_database()
-            await self.api_mgr.initialize()
-            await self.site_mgr.initialize()
+            await asyncio.gather(
+                self.api_mgr.initialize(),
+                self.site_mgr.initialize(),
+            )
             self.scheduler.start()
             self.scheduler.reload()
             logger.info("[app] core services restarted")

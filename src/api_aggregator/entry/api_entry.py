@@ -1,4 +1,3 @@
-# core/entry.py
 from __future__ import annotations
 
 import re
@@ -6,76 +5,34 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ..log import logger
-from ..model import ConfigNode, DataType
+from ..model import ApiPayload, DataType, FieldCaster
 
 
-class APIEntry(ConfigNode):
+class APIEntry:
     """API entry."""
-
-    name: str
-    url: str
-    type: str
-    params: dict[str, Any]
-    parse: str
-    enabled: bool
-    scope: list[str]
-    keywords: list[str]
-    cron: str
-    valid: bool
-    site: str
-
-    @staticmethod
-    def _to_bool(value: Any, default: bool) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            lowered = value.strip().lower()
-            if lowered in {"1", "true", "yes", "on"}:
-                return True
-            if lowered in {"0", "false", "no", "off", ""}:
-                return False
-        return bool(value)
-
-    @staticmethod
-    def _to_dict(value: Any) -> dict[str, Any]:
-        if isinstance(value, dict):
-            return dict(value)
-        return {}
-
-    @staticmethod
-    def _to_str_list(value: Any) -> list[str]:
-        if value is None:
-            return []
-        if isinstance(value, list):
-            return [str(item).strip() for item in value if str(item).strip()]
-        if isinstance(value, str):
-            text = value.strip()
-            return [text] if text else []
-        return []
 
     @classmethod
     def _normalize_data(cls, data: dict[str, Any]) -> dict[str, Any]:
-        normalized = dict(data)
-        name = str(normalized.get("name", "")).strip()
-        normalized["name"] = name
-        normalized["url"] = str(normalized.get("url", "")).strip()
-        normalized["type"] = str(normalized.get("type") or "text").strip() or "text"
-        normalized["params"] = cls._to_dict(normalized.get("params"))
-        normalized["parse"] = str(normalized.get("parse") or "")
-        normalized["enabled"] = cls._to_bool(normalized.get("enabled"), True)
-        normalized["scope"] = cls._to_str_list(normalized.get("scope"))
-        keywords = cls._to_str_list(normalized.get("keywords"))
-        normalized["keywords"] = keywords or ([name] if name else [])
-        normalized["cron"] = str(normalized.get("cron") or "")
-        normalized["valid"] = cls._to_bool(normalized.get("valid"), True)
-        normalized["site"] = str(normalized.get("site") or "").strip()
+        normalized = ApiPayload.from_raw(
+            data if isinstance(data, dict) else {},
+            require_name=False,
+            require_url=False,
+        ).to_dict()
         return normalized
 
-    def __init__(self, data: dict):
+    def __init__(self, data: dict[str, Any]):
         normalized = self._normalize_data(data if isinstance(data, dict) else {})
-        super().__init__(normalized)
+        self.name = normalized["name"]
+        self.url = normalized["url"]
+        self.type = normalized["type"]
+        self.params = dict(normalized["params"])
+        self.parse = normalized["parse"]
+        self.enabled = FieldCaster.to_bool(normalized["enabled"], default=True)
+        self.scope = FieldCaster.to_str_list(normalized["scope"])
+        self.keywords = FieldCaster.to_str_list(normalized["keywords"])
+        self.cron = normalized["cron"]
+        self.valid = FieldCaster.to_bool(normalized["valid"], default=True)
+        self.site = normalized["site"]
         try:
             self._data_type = DataType.from_str(self.type)
         except Exception:
@@ -91,11 +48,11 @@ class APIEntry(ConfigNode):
             "name": self.name,
             "url": self.url,
             "type": self.type,
-            "params": self._to_dict(self.params),
+            "params": FieldCaster.to_dict(self.params),
             "parse": self.parse,
             "enabled": self.enabled,
-            "scope": self._to_str_list(self.scope),
-            "keywords": self._to_str_list(self.keywords),
+            "scope": FieldCaster.to_str_list(self.scope),
+            "keywords": FieldCaster.to_str_list(self.keywords),
             "cron": self.cron,
             "valid": self.valid,
             "site": self.site,
@@ -154,6 +111,28 @@ class APIEntry(ConfigNode):
                     logger.warning(
                         f"[entry:{self.name}] regex compile failed: {pattern} ({e})"
                     )
+
+    def set_keywords(self, keywords: list[str]) -> None:
+        self.keywords = FieldCaster.to_str_list(keywords, default=[])
+        self._compile_patterns()
+
+    def add_scope(self, scope: str) -> bool:
+        value = str(scope or "").strip()
+        if not value:
+            return False
+        if value in self.scope:
+            return False
+        self.scope.append(value)
+        return True
+
+    def remove_scope(self, scope: str) -> bool:
+        value = str(scope or "").strip()
+        if not value:
+            return False
+        if value not in self.scope:
+            return False
+        self.scope = [item for item in self.scope if item != value]
+        return True
 
     def _match_keywords(self, text: str) -> bool:
         """Whether any keyword regex matches."""

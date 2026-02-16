@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from pathlib import Path
 from typing import Any
 
 from .config import APIConfig
 from .log import get_logger
+from .model import FieldCaster
 
 logger = get_logger("database")
 
@@ -53,39 +53,6 @@ class SQLiteDatabase:
             conn.commit()
 
     @staticmethod
-    def _load_json_file(file: Path) -> list[dict[str, Any]]:
-        if not file.exists():
-            return []
-        try:
-            with file.open("r", encoding="utf-8-sig") as f:
-                raw = json.load(f)
-        except Exception as exc:
-            logger.error("load preset file failed: %s -> %s", file, exc)
-            return []
-        return SQLiteDatabase._normalize_pool_data(raw)
-
-    def reload_from_presets(self) -> None:
-        if self.cfg is None:
-            raise RuntimeError("reload_from_presets requires APIConfig")
-        self.site_pool = self._load_json_file(self.cfg.builtin_sites_file)
-        self.api_pool = self._load_json_file(self.cfg.builtin_apis_file)
-        self.save_to_database()
-
-    @staticmethod
-    def _to_bool(value: Any, *, default: bool = True) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            lowered = value.strip().lower()
-            if lowered in {"1", "true", "yes", "on"}:
-                return True
-            if lowered in {"0", "false", "no", "off", ""}:
-                return False
-        return bool(value)
-
-    @staticmethod
     def _normalize_pool_data(data: Any) -> list[dict[str, Any]]:
         if not isinstance(data, list):
             return []
@@ -96,29 +63,194 @@ class SQLiteDatabase:
                 if "enabled" not in row or row.get("enabled") is None:
                     row["enabled"] = True
                 else:
-                    row["enabled"] = SQLiteDatabase._to_bool(
+                    row["enabled"] = FieldCaster.to_bool(
                         row.get("enabled"), default=True
                     )
                 normalized.append(row)
         return normalized
 
+    @classmethod
+    def _normalize_upserts(cls, value: Any) -> list[dict[str, Any]]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("upserts must be a list")
+        rows: list[dict[str, Any]] = []
+        for item in value:
+            if not isinstance(item, dict):
+                raise ValueError("upsert item must be an object")
+            normalized = cls._normalize_pool_data([item])
+            if not normalized:
+                continue
+            row = normalized[0]
+            name = FieldCaster.normalize_name(row.get("name"))
+            if not name:
+                raise ValueError("upsert item missing name")
+            row["name"] = name
+            rows.append(row)
+        return rows
+
+    @classmethod
+    def _normalize_delete_names(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            names = [value]
+        elif isinstance(value, list):
+            names = value
+        else:
+            raise ValueError("delete_names must be a string or list")
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in names:
+            name = FieldCaster.normalize_name(item)
+            if not name or name in seen:
+                continue
+            result.append(name)
+            seen.add(name)
+        return result
+
+    @staticmethod
+    def _write_pool_table(
+        conn: sqlite3.Connection, table: str, rows: list[dict[str, Any]]
+    ) -> None:
+        conn.execute(f"DELETE FROM {table}")
+        payload_rows = [
+            (
+                index,
+                str(item.get("name", "")).strip(),
+                json.dumps(item, ensure_ascii=False),
+            )
+            for index, item in enumerate(rows)
+        ]
+        if payload_rows:
+            conn.executemany(
+                f"INSERT INTO {table}(pos, name, payload) VALUES (?, ?, ?)",
+                payload_rows,
+            )
+
+    @staticmethod
+    def _load_table_pos_map(conn: sqlite3.Connection, table: str) -> dict[str, int]:
+        rows = conn.execute(f"SELECT name, pos FROM {table}").fetchall()
+        pos_map: dict[str, int] = {}
+        for row in rows:
+            name = FieldCaster.normalize_name(row["name"])
+            if not name:
+                continue
+            try:
+                pos_map[name] = int(row["pos"])
+            except Exception:
+                continue
+        return pos_map
+
+    @classmethod
+    def _apply_pool_table_batch(
+        cls,
+        conn: sqlite3.Connection,
+        table: str,
+        *,
+        upserts: list[dict[str, Any]],
+        delete_names: list[str],
+    ) -> None:
+        if not upserts and not delete_names:
+            return
+
+        pos_map = cls._load_table_pos_map(conn, table)
+
+        if delete_names:
+            conn.executemany(
+                f"DELETE FROM {table} WHERE name = ?",
+                [(name,) for name in delete_names],
+            )
+            for name in delete_names:
+                pos_map.pop(name, None)
+
+        next_pos = (max(pos_map.values()) + 1) if pos_map else 0
+        updates: list[tuple[str, str]] = []
+        inserts: list[tuple[int, str, str]] = []
+        for row in upserts:
+            name = FieldCaster.normalize_name(row.get("name"))
+            if not name:
+                continue
+            payload = json.dumps(row, ensure_ascii=False)
+            if name in pos_map:
+                updates.append((payload, name))
+                continue
+            inserts.append((next_pos, name, payload))
+            pos_map[name] = next_pos
+            next_pos += 1
+
+        if updates:
+            conn.executemany(
+                f"UPDATE {table} SET payload = ? WHERE name = ?",
+                updates,
+            )
+        if inserts:
+            conn.executemany(
+                f"INSERT INTO {table}(pos, name, payload) VALUES (?, ?, ?)",
+                inserts,
+            )
+
     def _save_pool_table(self, table: str, rows: list[dict[str, Any]]) -> None:
-        sql = f"INSERT INTO {table}(pos, name, payload) VALUES (?, ?, ?)"
         try:
             with self._connect() as conn:
-                conn.execute(f"DELETE FROM {table}")
-                for index, item in enumerate(rows):
-                    conn.execute(
-                        sql,
-                        (
-                            index,
-                            str(item.get("name", "")).strip(),
-                            json.dumps(item, ensure_ascii=False),
-                        ),
-                    )
+                self._write_pool_table(conn, table, rows)
                 conn.commit()
         except Exception as exc:
             logger.error("save sqlite table failed (%s): %s", table, exc)
+
+    @classmethod
+    def _apply_pool_batch(
+        cls,
+        pool: list[dict[str, Any]],
+        *,
+        upserts: list[dict[str, Any]],
+        delete_names: list[str],
+    ) -> dict[str, Any]:
+        delete_set = set(delete_names)
+        updated = 0
+        deleted = 0
+        inserted = 0
+        changed = False
+
+        if delete_set:
+            before = len(pool)
+            pool[:] = [
+                row
+                for row in pool
+                if FieldCaster.normalize_name(row.get("name")) not in delete_set
+            ]
+            deleted = before - len(pool)
+            changed = deleted > 0
+
+        index_by_name = {
+            FieldCaster.normalize_name(row.get("name")): index
+            for index, row in enumerate(pool)
+            if FieldCaster.normalize_name(row.get("name"))
+        }
+        for row in upserts:
+            name = FieldCaster.normalize_name(row.get("name"))
+            if not name:
+                continue
+            index = index_by_name.get(name)
+            if index is None:
+                pool.append(row)
+                index_by_name[name] = len(pool) - 1
+                inserted += 1
+                changed = True
+            else:
+                if pool[index] != row:
+                    pool[index] = row
+                    updated += 1
+                    changed = True
+
+        return {
+            "changed": changed,
+            "inserted": inserted,
+            "updated": updated,
+            "deleted": deleted,
+            "total": len(pool),
+        }
 
     def save_site_pool(self) -> None:
         self._save_pool_table("site_pool", self.site_pool)
@@ -129,6 +261,82 @@ class SQLiteDatabase:
     def save_to_database(self) -> None:
         self.save_site_pool()
         self.save_api_pool()
+
+    def batch_update_pools(
+        self,
+        *,
+        site_upserts: list[dict[str, Any]] | None = None,
+        site_delete_names: list[str] | str | None = None,
+        api_upserts: list[dict[str, Any]] | None = None,
+        api_delete_names: list[str] | str | None = None,
+    ) -> dict[str, Any]:
+        normalized_site_upserts = self._normalize_upserts(site_upserts)
+        normalized_site_deletes = self._normalize_delete_names(site_delete_names)
+        normalized_api_upserts = self._normalize_upserts(api_upserts)
+        normalized_api_deletes = self._normalize_delete_names(api_delete_names)
+
+        site_stats = self._apply_pool_batch(
+            self.site_pool,
+            upserts=normalized_site_upserts,
+            delete_names=normalized_site_deletes,
+        )
+        api_stats = self._apply_pool_batch(
+            self.api_pool,
+            upserts=normalized_api_upserts,
+            delete_names=normalized_api_deletes,
+        )
+        changed_tables: list[str] = []
+        try:
+            with self._connect() as conn:
+                if site_stats["changed"]:
+                    self._apply_pool_table_batch(
+                        conn,
+                        "site_pool",
+                        upserts=normalized_site_upserts,
+                        delete_names=normalized_site_deletes,
+                    )
+                    changed_tables.append("site_pool")
+                if api_stats["changed"]:
+                    self._apply_pool_table_batch(
+                        conn,
+                        "api_pool",
+                        upserts=normalized_api_upserts,
+                        delete_names=normalized_api_deletes,
+                    )
+                    changed_tables.append("api_pool")
+                if changed_tables:
+                    conn.commit()
+        except Exception:
+            self.reload_from_database()
+            raise
+
+        return {
+            "changed_tables": changed_tables,
+            "site": {k: v for k, v in site_stats.items() if k != "changed"},
+            "api": {k: v for k, v in api_stats.items() if k != "changed"},
+        }
+
+    def batch_update_site_pool(
+        self,
+        *,
+        upserts: list[dict[str, Any]] | None = None,
+        delete_names: list[str] | str | None = None,
+    ) -> dict[str, Any]:
+        return self.batch_update_pools(
+            site_upserts=upserts,
+            site_delete_names=delete_names,
+        )["site"]
+
+    def batch_update_api_pool(
+        self,
+        *,
+        upserts: list[dict[str, Any]] | None = None,
+        delete_names: list[str] | str | None = None,
+    ) -> dict[str, Any]:
+        return self.batch_update_pools(
+            api_upserts=upserts,
+            api_delete_names=delete_names,
+        )["api"]
 
     def reload_from_database(self) -> None:
         try:
@@ -257,106 +465,6 @@ class SQLiteDatabase:
                 filtered.append(item)
         return filtered
 
-    @staticmethod
-    def _sort_sites(items: list[dict[str, Any]], rule: str) -> list[dict[str, Any]]:
-        data = list(items)
-        if rule == "name_desc":
-            return sorted(
-                data, key=lambda x: str(x.get("name", "")).lower(), reverse=True
-            )
-        if rule == "url_asc":
-            return sorted(data, key=lambda x: str(x.get("url", "")).lower())
-        if rule == "url_desc":
-            return sorted(
-                data, key=lambda x: str(x.get("url", "")).lower(), reverse=True
-            )
-        if rule == "timeout_asc":
-            return sorted(data, key=lambda x: int(x.get("timeout", 60)))
-        if rule == "timeout_desc":
-            return sorted(data, key=lambda x: int(x.get("timeout", 60)), reverse=True)
-        if rule == "api_count_asc":
-            return sorted(
-                data,
-                key=lambda x: (
-                    int(x.get("api_count", 0)),
-                    str(x.get("name", "")).lower(),
-                ),
-            )
-        if rule == "api_count_desc":
-            return sorted(
-                data,
-                key=lambda x: (
-                    -int(x.get("api_count", 0)),
-                    str(x.get("name", "")).lower(),
-                ),
-            )
-        if rule == "enabled_first":
-            return sorted(
-                data,
-                key=lambda x: (
-                    not bool(x.get("enabled", True)),
-                    str(x.get("name", "")).lower(),
-                ),
-            )
-        if rule == "disabled_first":
-            return sorted(
-                data,
-                key=lambda x: (
-                    bool(x.get("enabled", True)),
-                    str(x.get("name", "")).lower(),
-                ),
-            )
-        return sorted(data, key=lambda x: str(x.get("name", "")).lower())
-
-    @staticmethod
-    def _sort_apis(items: list[dict[str, Any]], rule: str) -> list[dict[str, Any]]:
-        data = list(items)
-        if rule == "name_desc":
-            return sorted(
-                data, key=lambda x: str(x.get("name", "")).lower(), reverse=True
-            )
-        if rule == "url_asc":
-            return sorted(data, key=lambda x: str(x.get("url", "")).lower())
-        if rule == "url_desc":
-            return sorted(
-                data, key=lambda x: str(x.get("url", "")).lower(), reverse=True
-            )
-        if rule == "type_asc":
-            return sorted(data, key=lambda x: str(x.get("type", "")).lower())
-        if rule == "type_desc":
-            return sorted(
-                data, key=lambda x: str(x.get("type", "")).lower(), reverse=True
-            )
-        if rule == "valid_first":
-            return sorted(
-                data,
-                key=lambda x: (
-                    not bool(x.get("valid", True)),
-                    str(x.get("name", "")).lower(),
-                ),
-            )
-        if rule == "invalid_first":
-            return sorted(
-                data,
-                key=lambda x: (
-                    bool(x.get("valid", True)),
-                    str(x.get("name", "")).lower(),
-                ),
-            )
-        if rule == "keywords_desc":
-            return sorted(
-                data,
-                key=lambda x: (
-                    -len(
-                        x.get("keywords", [])
-                        if isinstance(x.get("keywords"), list)
-                        else []
-                    ),
-                    str(x.get("name", "")).lower(),
-                ),
-            )
-        return sorted(data, key=lambda x: str(x.get("name", "")).lower())
-
     def query_site_pool(
         self,
         *,
@@ -404,7 +512,11 @@ class SQLiteDatabase:
         if query_text:
             like_value = f"%{query_text}%"
             where_parts.append(
-                f"({site_name_expr} LIKE ? OR {site_url_expr} LIKE ? OR LOWER(COALESCE(s.payload, '')) LIKE ?)"
+                "("
+                f"{site_name_expr} LIKE ? OR "
+                f"{site_url_expr} LIKE ? OR "
+                "LOWER(COALESCE(s.payload, '')) LIKE ?"
+                ")"
             )
             params.extend([like_value, like_value, like_value])
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
@@ -508,7 +620,11 @@ class SQLiteDatabase:
         if query_text:
             like_value = f"%{query_text}%"
             where_parts.append(
-                f"({api_name_expr} LIKE ? OR {api_url_expr} LIKE ? OR LOWER(COALESCE(a.payload, '')) LIKE ?)"
+                "("
+                f"{api_name_expr} LIKE ? OR "
+                f"{api_url_expr} LIKE ? OR "
+                "LOWER(COALESCE(a.payload, '')) LIKE ?"
+                ")"
             )
             params.extend([like_value, like_value, like_value])
         if normalized_site_names:
@@ -533,7 +649,11 @@ class SQLiteDatabase:
                 start = 1 if total else 0
                 end = total
                 item_rows = conn.execute(
-                    f"SELECT a.payload AS payload FROM api_pool a {where_sql} ORDER BY {order_clause}",
+                    (
+                        "SELECT a.payload AS payload "
+                        f"FROM api_pool a {where_sql} "
+                        f"ORDER BY {order_clause}"
+                    ),
                     params,
                 ).fetchall()
             else:

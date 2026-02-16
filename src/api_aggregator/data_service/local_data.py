@@ -514,14 +514,29 @@ class LocalDataService:
 
     @staticmethod
     def _filter_collections(
-        items: list[dict[str, Any]], query: str
+        items: list[dict[str, Any]],
+        query: str,
+        *,
+        type_values: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         q = str(query or "").strip().lower()
+        type_set = {
+            str(value).strip().lower()
+            for value in (type_values or [])
+            if str(value).strip()
+        }
+        result = list(items)
+        if type_set:
+            result = [
+                item
+                for item in result
+                if str(item.get("type", "")).strip().lower() in type_set
+            ]
         if not q:
-            return list(items)
+            return result
         return [
             item
-            for item in items
+            for item in result
             if q in str(item.get("name", "")).lower()
             or q in str(item.get("type", "")).lower()
         ]
@@ -563,13 +578,20 @@ class LocalDataService:
         page_size: int | str = 20,
         query: str = "",
         sort_rule: str = "name_asc",
+        type_values: list[str] | None = None,
     ) -> dict[str, Any]:
         data = self.list_collections()
-        filtered = self._filter_collections(data, query)
+        filtered = self._filter_collections(
+            data,
+            query,
+            type_values=type_values,
+        )
         sorted_rows = self._sort_collections(filtered, sort_rule)
         return self._paginate(sorted_rows, page, page_size)
 
-    def get_collection_items(self, data_type: DataType, name: str) -> dict[str, Any]:
+    def _get_collection_items_one(
+        self, data_type: DataType, name: str
+    ) -> dict[str, Any]:
         if data_type.is_text:
             json_file = self._text_data_file(data_type, name)
             if not json_file.exists():
@@ -612,7 +634,49 @@ class LocalDataService:
         ]
         return summary
 
-    def delete_collection(self, data_type: DataType, name: str) -> dict[str, Any]:
+    @staticmethod
+    def _parse_collection_target(target: Any) -> tuple[DataType, str]:
+        if not isinstance(target, dict):
+            raise LocalDataError("collection target must be an object")
+        data_type_raw = str(target.get("type", "")).strip().lower()
+        name = str(target.get("name", "")).strip()
+        if not data_type_raw or not name:
+            raise LocalDataError("collection target requires type and name")
+        return DataType.from_str(data_type_raw), name
+
+    def get_collection_items_batch(
+        self, targets: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        if not isinstance(targets, list) or not targets:
+            raise LocalDataError("targets must be a non-empty list")
+        success: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        for target in targets:
+            try:
+                data_type, name = self._parse_collection_target(target)
+                success.append(
+                    {
+                        "type": data_type.value,
+                        "name": name,
+                        "detail": self._get_collection_items_one(data_type, name),
+                    }
+                )
+            except Exception as exc:
+                failed.append(
+                    {
+                        "target": target if isinstance(target, dict) else {},
+                        "error": str(exc),
+                    }
+                )
+        return {
+            "requested": len(targets),
+            "success": success,
+            "failed": failed,
+        }
+
+    def _delete_collection_one(
+        self, data_type: DataType, name: str
+    ) -> dict[str, Any]:
         if data_type.is_text:
             json_file = self._text_data_file(data_type, name)
             index_file = self._text_index_file(data_type, name)
@@ -626,37 +690,47 @@ class LocalDataService:
         folder = self.get_type_dir(data_type) / name
         if not folder.exists() or not folder.is_dir():
             raise LocalDataError(f"folder not found: {folder}")
-
-        deleted = 0
-        for child in list(folder.iterdir()):
-            if child.is_file():
-                child.unlink()
-                if self._is_binary_data_file(child):
-                    deleted += 1
-            elif child.is_dir():
-                shutil.rmtree(child)
-
-        folder.rmdir()
+        deleted = len(self._list_binary_files(folder))
+        shutil.rmtree(folder)
         return {"deleted": deleted}
 
-    def delete_item(
-        self,
-        data_type: DataType,
-        name: str,
-        *,
-        index: int | None = None,
-        relative_path: str | None = None,
-    ) -> dict[str, Any]:
-        items: list[dict[str, Any]] = []
-        if index is not None:
-            items.append({"index": index})
-        if relative_path:
-            items.append({"path": relative_path})
-        if not items:
-            raise LocalDataError("missing delete target")
-        return self.delete_items_batch(data_type, name, items)
+    def delete_collections_batch(self, targets: list[dict[str, Any]]) -> dict[str, Any]:
+        if not isinstance(targets, list) or not targets:
+            raise LocalDataError("targets must be a non-empty list")
 
-    def delete_items_batch(
+        success: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        total_deleted = 0
+
+        for target in targets:
+            try:
+                data_type, name = self._parse_collection_target(target)
+                result = self._delete_collection_one(data_type, name)
+                deleted = int(result.get("deleted", 0))
+                total_deleted += deleted
+                success.append(
+                    {
+                        "type": data_type.value,
+                        "name": name,
+                        "deleted": deleted,
+                    }
+                )
+            except Exception as exc:
+                failed.append(
+                    {
+                        "target": target if isinstance(target, dict) else {},
+                        "error": str(exc),
+                    }
+                )
+
+        return {
+            "requested": len(targets),
+            "deleted": total_deleted,
+            "success": success,
+            "failed": failed,
+        }
+
+    def _delete_items_batch_one(
         self,
         data_type: DataType,
         name: str,
@@ -673,13 +747,12 @@ class LocalDataService:
 
             try:
                 raw = json.loads(json_file.read_text(encoding="utf-8"))
-                items = raw if isinstance(raw, list) else []
             except Exception as exc:
                 raise LocalDataError(
                     f"json parse failed: {json_file}, error: {exc}"
                 ) from exc
 
-            dataset_items = raw if isinstance(raw, list) else []
+            dataset_items = list(raw) if isinstance(raw, list) else []
             unique_indices: set[int] = set()
             for item in items:
                 if not isinstance(item, dict):
@@ -781,4 +854,68 @@ class LocalDataService:
             "deleted": deleted_count,
             "failed": failed_count,
             "remain": remain,
+        }
+
+    def delete_items_multi_batch(self, targets: list[dict[str, Any]]) -> dict[str, Any]:
+        if not isinstance(targets, list) or not targets:
+            raise LocalDataError("targets must be a non-empty list")
+
+        success: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        total_deleted = 0
+        total_failed = 0
+
+        grouped: dict[tuple[DataType, str], list[dict[str, Any]]] = {}
+        group_counts: dict[tuple[DataType, str], int] = {}
+        for target in targets:
+            try:
+                data_type, name = self._parse_collection_target(target)
+                raw_items = target.get("items") if isinstance(target, dict) else None
+                if not isinstance(raw_items, list):
+                    raise LocalDataError("target items must be a list")
+                key = (data_type, name)
+                grouped.setdefault(key, []).extend(raw_items)
+                group_counts[key] = group_counts.get(key, 0) + 1
+            except Exception as exc:
+                failed.append(
+                    {
+                        "target": target if isinstance(target, dict) else {},
+                        "error": str(exc),
+                    }
+                )
+
+        for (data_type, name), merged_items in grouped.items():
+            try:
+                result = self._delete_items_batch_one(data_type, name, merged_items)
+                deleted = int(result.get("deleted", 0))
+                failed_count = int(result.get("failed", 0))
+                total_deleted += deleted
+                total_failed += failed_count
+                success.append(
+                    {
+                        "type": data_type.value,
+                        "name": name,
+                        "deleted": deleted,
+                        "failed": failed_count,
+                        "remain": int(result.get("remain", 0)),
+                        "merged_targets": group_counts.get((data_type, name), 1),
+                    }
+                )
+            except Exception as exc:
+                failed.append(
+                    {
+                        "target": {
+                            "type": data_type.value,
+                            "name": name,
+                        },
+                        "error": str(exc),
+                    }
+                )
+
+        return {
+            "requested": len(targets),
+            "deleted": total_deleted,
+            "failed_count": total_failed + len(failed),
+            "success": success,
+            "failed": failed,
         }

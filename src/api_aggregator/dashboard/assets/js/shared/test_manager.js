@@ -17,6 +17,8 @@ function createTestManager(deps) {
     withButtonLoading,
     req,
     showNoticeModal,
+    getBatchTestNames,
+    getBatchTestRange,
   } = deps;
 
   let testStreamAbort = null;
@@ -586,10 +588,12 @@ function createTestManager(deps) {
 
   async function runSinglePreviewOnce(payload, options = {}) {
     const previewPayload = buildSingleTestPayload(payload);
-    const detail = await req("/api/test/preview", {
+    const batch = await req("/api/test/preview/batch", {
       method: "POST",
-      body: JSON.stringify(previewPayload),
+      body: JSON.stringify({ items: [previewPayload] }),
     });
+    const detail =
+      Array.isArray(batch?.items) && batch.items.length ? batch.items[0] : {};
     if (!options.skipLog) {
       appendTestLog({
         repeat_round: Number(options.repeatRound || 0),
@@ -781,8 +785,14 @@ function createTestManager(deps) {
     refreshSingleRepeatButtonLabel();
   }
 
-  async function testApisStream(names = [], task = null) {
+  async function testApisStream(names = [], task = null, range = null) {
     const isSingle = Array.isArray(names) && names.length === 1;
+    const normalizedRange =
+      range && typeof range === "object" ? range : {};
+    const rangeSiteNames = new Set(
+      normalizeList(normalizedRange.site_names || normalizedRange.sites || [])
+    );
+    const rangeQuery = textValue(normalizedRange.query).trim().toLowerCase();
     const streamTask =
       task ||
       createRunningTask("batch", isSingle ? t("test_single_title") : t("test_all_title"), {
@@ -807,7 +817,22 @@ function createTestManager(deps) {
       const targets = (Array.isArray(getApis()) ? getApis() : []).filter((api) => {
         const apiName = textValue(api?.name);
         if (!apiName) return false;
-        return selectedNames.size ? selectedNames.has(apiName) : true;
+        if (selectedNames.size && !selectedNames.has(apiName)) return false;
+        if (rangeSiteNames.size) {
+          const apiSite = textValue(api?.site).trim();
+          if (!apiSite || !rangeSiteNames.has(apiSite)) return false;
+        }
+        if (rangeQuery) {
+          const hitName = textValue(api?.name).toLowerCase().includes(rangeQuery);
+          const hitUrl = textValue(api?.url).toLowerCase().includes(rangeQuery);
+          const hitKeywords = Array.isArray(api?.keywords)
+            ? api.keywords.some((keyword) =>
+                textValue(keyword).toLowerCase().includes(rangeQuery)
+              )
+            : false;
+          if (!hitName && !hitUrl && !hitKeywords) return false;
+        }
+        return true;
       });
       const total = targets.length;
       let completed = 0;
@@ -868,6 +893,14 @@ function createTestManager(deps) {
         names.forEach((name) => {
           if (name) params.append("name", String(name));
         });
+      }
+      if (rangeSiteNames.size) {
+        Array.from(rangeSiteNames).forEach((name) => {
+          params.append("site", name);
+        });
+      }
+      if (rangeQuery) {
+        params.set("query", rangeQuery);
       }
       const streamUrl = params.size
         ? `/api/test/stream?${params.toString()}`
@@ -1001,7 +1034,22 @@ function createTestManager(deps) {
 
   async function onTestAllClick(btn) {
     await withButtonLoading(btn, async () => {
-      await testApisStream([], createRunningTask("batch", t("test_all_title")));
+      const names =
+        typeof getBatchTestNames === "function" ? normalizeList(getBatchTestNames()) : [];
+      if (names.length) {
+        await testApisStream(
+          names,
+          createRunningTask("batch", t("test_all_title")),
+          null
+        );
+        return;
+      }
+      const range = typeof getBatchTestRange === "function" ? getBatchTestRange() : {};
+      await testApisStream(
+        [],
+        createRunningTask("batch", t("test_all_title")),
+        range
+      );
     });
   }
 

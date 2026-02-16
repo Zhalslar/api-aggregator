@@ -1,90 +1,263 @@
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from types import MappingProxyType, UnionType
-from typing import Any, Union, get_args, get_origin, get_type_hints
+from typing import Any
 
 
-class ConfigNode:
-    """
-    Config node that wraps a dict into a typed object.
-
-    Rules:
-    - schema comes from subclass type hints
-    - declared fields: readable/writable, writes back to underlying dict
-    - undeclared fields and underscore fields: attached only, not persisted
-    - supports multi-level ConfigNode nesting (lazy + cache)
-    """
-
-    _SCHEMA_CACHE: dict[type, dict[str, type]] = {}
-    _FIELDS_CACHE: dict[type, set[str]] = {}
-
-    @classmethod
-    def _schema(cls) -> dict[str, type]:
-        return cls._SCHEMA_CACHE.setdefault(cls, get_type_hints(cls))
-
-    @classmethod
-    def _fields(cls) -> set[str]:
-        return cls._FIELDS_CACHE.setdefault(
-            cls,
-            {k for k in cls._schema() if not k.startswith("_")},
-        )
+class FieldCaster:
+    """Shared coercion helpers for request/entry normalization."""
 
     @staticmethod
-    def _is_optional(tp: type) -> bool:
-        if get_origin(tp) in (Union, UnionType):
-            return type(None) in get_args(tp)
-        return False
-
-    def __init__(self, data: MutableMapping[str, Any]):
-        object.__setattr__(self, "_data", data)
-        object.__setattr__(self, "_children", {})
-        for key, tp in self._schema().items():
-            if key.startswith("_"):
-                continue
-            if key in data:
-                continue
-            if hasattr(self.__class__, key):
-                continue
-            if self._is_optional(tp):
-                continue
-            print(f"[config:{self.__class__.__name__}] missing field: {key}")
-
-    def __getattr__(self, key: str) -> Any:
-        if key in self._fields():
-            value = self._data.get(key)
-            tp = self._schema().get(key)
-
-            if isinstance(tp, type) and issubclass(tp, ConfigNode):
-                children: dict[str, ConfigNode] = self.__dict__["_children"]
-                if key not in children:
-                    if not isinstance(value, MutableMapping):
-                        raise TypeError(
-                            f"[config:{self.__class__.__name__}] "
-                            f"field {key} expected dict, got {type(value).__name__}"
-                        )
-                    children[key] = tp(value)
-                return children[key]
-
+    def to_bool(value: Any, *, default: bool = True) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
             return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"1", "true", "yes", "on"}:
+                return True
+            if lowered in {"0", "false", "no", "off", ""}:
+                return False
+        return bool(value)
 
-        if key in self.__dict__:
-            return self.__dict__[key]
+    @staticmethod
+    def to_dict(value: Any, *, default: dict[str, Any] | None = None) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return dict(value)
+        return dict(default or {})
 
-        raise AttributeError(key)
+    @staticmethod
+    def to_str_list(value: Any, *, default: list[str] | None = None) -> list[str]:
+        if value is None:
+            return list(default or [])
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            text = value.strip()
+            return [text] if text else list(default or [])
+        return list(default or [])
 
-    def __setattr__(self, key: str, value: Any) -> None:
-        if key in self._fields():
-            self._data[key] = value
-            return
-        object.__setattr__(self, key, value)
+    @staticmethod
+    def normalize_name(value: Any) -> str:
+        return str(value or "").strip()
 
-    def raw_data(self) -> Mapping[str, Any]:
-        """
-        Read-only view of the underlying config dict.
-        """
-        return MappingProxyType(self._data)
+    @staticmethod
+    def require_object_list(value: Any, *, field: str) -> list[dict[str, Any]]:
+        if not isinstance(value, list) or not value:
+            raise ValueError(f"field '{field}' must be a non-empty list")
+        items = [item for item in value if isinstance(item, dict)]
+        if not items:
+            raise ValueError(f"field '{field}' must contain objects")
+        return items
+
+    @staticmethod
+    def normalize_name_list(value: Any, *, field: str) -> list[str]:
+        if isinstance(value, str):
+            raw = [value]
+        elif isinstance(value, list):
+            raw = value
+        else:
+            raise ValueError(f"field '{field}' must be a string or list")
+        names: list[str] = []
+        seen: set[str] = set()
+        for item in raw:
+            name = FieldCaster.normalize_name(item)
+            if not name or name in seen:
+                continue
+            names.append(name)
+            seen.add(name)
+        if not names:
+            raise ValueError(f"field '{field}' must include at least one name")
+        return names
+
+
+@dataclass(frozen=True)
+class ItemsBatch:
+    items: list[dict[str, Any]]
+
+    @classmethod
+    def from_raw(
+        cls,
+        payload: dict[str, Any],
+        *,
+        field: str = "items",
+    ) -> "ItemsBatch":
+        return cls(
+            items=FieldCaster.require_object_list(payload.get(field), field=field)
+        )
+
+
+@dataclass(frozen=True)
+class NamesBatch:
+    names: list[str]
+
+    @classmethod
+    def from_raw(
+        cls,
+        payload: dict[str, Any],
+        *,
+        field: str = "names",
+    ) -> "NamesBatch":
+        return cls(
+            names=FieldCaster.normalize_name_list(payload.get(field), field=field)
+        )
+
+
+@dataclass(frozen=True)
+class TargetsBatch:
+    targets: list[dict[str, Any]]
+
+    @classmethod
+    def from_raw(
+        cls, payload: dict[str, Any], *, field: str = "targets"
+    ) -> "TargetsBatch":
+        return cls(
+            targets=FieldCaster.require_object_list(payload.get(field), field=field)
+        )
+
+
+@dataclass(frozen=True)
+class UpdateItem:
+    name: str
+    payload: dict[str, Any]
+
+    @classmethod
+    def from_raw(cls, item: dict[str, Any]) -> "UpdateItem":
+        name = FieldCaster.normalize_name(item.get("name"))
+        payload = item.get("payload")
+        if not name:
+            raise ValueError("update item requires name")
+        if not isinstance(payload, dict):
+            raise ValueError("update item requires object payload")
+        return cls(name=name, payload=dict(payload))
+
+
+@dataclass(frozen=True)
+class UpdateItemsBatch:
+    items: list[UpdateItem]
+
+    @classmethod
+    def from_raw(
+        cls,
+        payload: dict[str, Any],
+        *,
+        field: str = "items",
+    ) -> "UpdateItemsBatch":
+        raw_items = FieldCaster.require_object_list(payload.get(field), field=field)
+        return cls(items=[UpdateItem.from_raw(item) for item in raw_items])
+
+
+@dataclass(frozen=True)
+class SitePayload:
+    name: str
+    url: str
+    enabled: bool
+    headers: dict[str, Any]
+    keys: dict[str, Any]
+    timeout: int
+
+    @classmethod
+    def from_raw(
+        cls,
+        payload: dict[str, Any],
+        *,
+        require_name: bool = True,
+        require_url: bool = True,
+    ) -> "SitePayload":
+        data = dict(payload)
+        name = FieldCaster.normalize_name(data.get("name"))
+        url = FieldCaster.normalize_name(data.get("url"))
+        if require_name and not name:
+            raise ValueError("site name is required")
+        if require_url and not url:
+            raise ValueError("site url is required")
+        return cls(
+            name=name,
+            url=url,
+            enabled=FieldCaster.to_bool(data.get("enabled"), default=True),
+            headers=FieldCaster.to_dict(data.get("headers")),
+            keys=FieldCaster.to_dict(data.get("keys")),
+            timeout=int(data.get("timeout", 60)),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "url": self.url,
+            "enabled": self.enabled,
+            "headers": dict(self.headers),
+            "keys": dict(self.keys),
+            "timeout": self.timeout,
+        }
+
+
+@dataclass(frozen=True)
+class ApiPayload:
+    name: str
+    url: str
+    type: str
+    params: dict[str, Any]
+    parse: str
+    enabled: bool
+    scope: list[str]
+    keywords: list[str]
+    cron: str
+    valid: bool
+    site: str
+
+    @classmethod
+    def from_raw(
+        cls,
+        payload: dict[str, Any],
+        *,
+        require_name: bool = True,
+        require_url: bool = True,
+        resolve_site_name: Callable[[str], str] | None = None,
+    ) -> "ApiPayload":
+        data = dict(payload)
+        name = FieldCaster.normalize_name(data.get("name"))
+        url = FieldCaster.normalize_name(data.get("url"))
+        if require_name and not name:
+            raise ValueError("api name is required")
+        if require_url and not url:
+            raise ValueError("api url is required")
+
+        keywords = FieldCaster.to_str_list(data.get("keywords"))
+        site_name = (
+            resolve_site_name(url)
+            if resolve_site_name is not None
+            else data.get("site")
+        )
+        return cls(
+            name=name,
+            url=url,
+            type=str(data.get("type", "text")),
+            params=FieldCaster.to_dict(data.get("params")),
+            parse=str(data.get("parse", "")),
+            enabled=FieldCaster.to_bool(data.get("enabled"), default=True),
+            scope=FieldCaster.to_str_list(data.get("scope")),
+            keywords=keywords or ([name] if name else []),
+            cron=str(data.get("cron", "")),
+            valid=FieldCaster.to_bool(data.get("valid"), default=True),
+            site=FieldCaster.normalize_name(site_name),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "url": self.url,
+            "type": self.type,
+            "params": dict(self.params),
+            "parse": self.parse,
+            "enabled": self.enabled,
+            "scope": list(self.scope),
+            "keywords": list(self.keywords),
+            "cron": self.cron,
+            "valid": self.valid,
+            "site": self.site,
+        }
 
 
 

@@ -7,8 +7,22 @@ from .data_service.request_result import RequestResult
 from .database import SQLiteDatabase
 from .entry import APIEntry, APIEntryManager, SiteEntry, SiteEntryManager
 from .main import APICoreApp
-from .model import ConfigNode, DataResource, DataType
+from .model import DataResource, DataType
 from .scheduler import APISchedulerService
+from .service import (
+    DEFAULT_POOL_FILES_DIR,
+    ApiDeleteService,
+    ApiTestService,
+    DeleteResult,
+    FileAccessError,
+    FileAccessService,
+    PoolIOService,
+    RestartInProgressError,
+    RestartUnavailableError,
+    RuntimeControlService,
+    SiteSyncService,
+    UpdateService,
+)
 from .version import __version__
 
 __all__ = [
@@ -27,8 +41,19 @@ __all__ = [
     "SiteEntry",
     "SiteEntryManager",
     "APICoreApp",
-    "ConfigNode",
     "DataResource",
     "DataType",
     "APISchedulerService",
+    "ApiDeleteService",
+    "ApiTestService",
+    "DEFAULT_POOL_FILES_DIR",
+    "DeleteResult",
+    "FileAccessError",
+    "FileAccessService",
+    "PoolIOService",
+    "RestartInProgressError",
+    "RestartUnavailableError",
+    "RuntimeControlService",
+    "SiteSyncService",
+    "UpdateService",
 ]

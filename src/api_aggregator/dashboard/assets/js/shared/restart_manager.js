@@ -113,6 +113,12 @@ function createRestartManager(deps) {
     setRestartProgressValue(0);
   }
 
+  async function waitForRestartAndReload() {
+    // Speed-first behavior: do not wait for boot-id transition, reload quickly.
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    window.location.reload();
+  }
+
   async function onRestartAppClick(btn) {
     const restartIconBtn = btn || document.getElementById("restartIconBtn");
     openModal();
@@ -127,22 +133,9 @@ function createRestartManager(deps) {
         modal.dataset.running = "1";
       }
       try {
-        await req("/api/system/restart", { method: "POST" });
-        await loadPool();
-        const elapsed = Date.now() - startedAt;
-        if (elapsed < minAnimationMs) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, minAnimationMs - elapsed)
-          );
-        }
-        setRestartModalStatus(t("restart_modal_status_success"), "success");
-        setRestartProgressState("success");
-        if (modal) {
-          modal.dataset.running = "0";
-        }
-        restartAutoCloseTimer = setTimeout(() => {
-          closeModal(true);
-        }, 700);
+        await req("/api/system/restart/full", { method: "POST" });
+        setRestartModalStatus(t("restart_modal_status_reconnecting"));
+        await waitForRestartAndReload();
       } catch (err) {
         const elapsed = Date.now() - startedAt;
         if (elapsed < minAnimationMs) {

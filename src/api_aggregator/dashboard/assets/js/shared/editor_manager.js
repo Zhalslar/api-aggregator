@@ -269,21 +269,35 @@ function createEditorManager(deps) {
       let saved = null;
       if (kind === "site") {
         if (oldName) {
-          saved = await req(`/api/site/${encodeURIComponent(oldName)}`, {
+          const result = await req("/api/site/batch", {
             method: "PUT",
-            body: JSON.stringify(payload),
+            body: JSON.stringify({
+              items: [{ name: oldName, payload }],
+            }),
           });
+          saved = Array.isArray(result?.items) ? result.items[0] : null;
         } else {
-          saved = await req("/api/site", { method: "POST", body: JSON.stringify(payload) });
+          const result = await req("/api/site/batch", {
+            method: "POST",
+            body: JSON.stringify({ items: [payload] }),
+          });
+          saved = Array.isArray(result?.items) ? result.items[0] : null;
         }
       } else if (kind === "api") {
         if (oldName) {
-          saved = await req(`/api/api/${encodeURIComponent(oldName)}`, {
+          const result = await req("/api/api/batch", {
             method: "PUT",
-            body: JSON.stringify(payload),
+            body: JSON.stringify({
+              items: [{ name: oldName, payload }],
+            }),
           });
+          saved = Array.isArray(result?.items) ? result.items[0] : null;
         } else {
-          saved = await req("/api/api", { method: "POST", body: JSON.stringify(payload) });
+          const result = await req("/api/api/batch", {
+            method: "POST",
+            body: JSON.stringify({ items: [payload] }),
+          });
+          saved = Array.isArray(result?.items) ? result.items[0] : null;
         }
       }
 
