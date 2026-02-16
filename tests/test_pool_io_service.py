@@ -40,10 +40,10 @@ class PoolIOServiceTest(unittest.TestCase):
         api_mgr = APIEntryManager(cfg, db)
         site_mgr = SiteEntryManager(cfg, db)
         service = PoolIOService(
+            cfg,
             db,
             api_mgr,
             site_mgr,
-            pool_files_dir=Path("pool_files"),
         )
         return db, service
 

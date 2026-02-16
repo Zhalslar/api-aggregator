@@ -11,7 +11,6 @@ from ..database import SQLiteDatabase
 from ..entry import APIEntryManager, SiteEntryManager
 from ..model import ApiPayload, SitePayload
 
-
 class PoolIOService:
     """Import/export site pool and api pool data files."""
 
@@ -25,10 +24,12 @@ class PoolIOService:
         resolve_site_name: Callable[[str], str] | None = None,
         sync_sites: Callable[[], bool] | None = None,
     ) -> None:
+        self.config = config
         self.db = db
         self.api_mgr = api_mgr
         self.site_mgr = site_mgr
         self.pool_files_dir = config.pool_files_dir
+
         self._resolve_site_name = resolve_site_name
         self._sync_sites = sync_sites
 

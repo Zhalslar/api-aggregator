@@ -10,7 +10,6 @@ from .main import APICoreApp
 from .model import DataResource, DataType
 from .scheduler import APISchedulerService
 from .service import (
-    DEFAULT_POOL_FILES_DIR,
     ApiDeleteService,
     ApiTestService,
     DeleteResult,
@@ -46,7 +45,6 @@ __all__ = [
     "APISchedulerService",
     "ApiDeleteService",
     "ApiTestService",
-    "DEFAULT_POOL_FILES_DIR",
     "DeleteResult",
     "FileAccessError",
     "FileAccessService",
