@@ -117,13 +117,6 @@ class PoolIOService:
         return data
 
     @staticmethod
-    def _strip_template_fields(row: dict[str, Any]) -> dict[str, Any]:
-        data = dict(row)
-        data.pop("template", None)
-        data.pop("__template_key", None)
-        return data
-
-    @staticmethod
     def _collect_existing_names(rows: list[dict[str, Any]]) -> set[str]:
         return {
             str(item.get("name", "")).strip()
@@ -144,7 +137,7 @@ class PoolIOService:
         failed = 0
         for item in rows:
             try:
-                normalized = self._strip_template_fields(normalize_row(item))
+                normalized = normalize_row(item)
                 name = str(normalized.get("name", "")).strip()
                 if not name:
                     failed += 1

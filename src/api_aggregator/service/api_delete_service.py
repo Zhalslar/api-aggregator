@@ -20,14 +20,18 @@ class ApiDeleteService:
     def __init__(self, api_mgr: APIEntryManager) -> None:
         self.api_mgr = api_mgr
 
+    @staticmethod
+    def _result(
+        ok: bool,
+        status: int,
+        message: str,
+        data: dict[str, Any] | None = None,
+    ) -> DeleteResult:
+        return DeleteResult(ok=ok, status=status, message=message, data=data or {})
+
     def delete_by_names(self, names: list[str]) -> DeleteResult:
         if not names:
-            return DeleteResult(
-                ok=False,
-                status=400,
-                message="missing api names",
-                data={},
-            )
+            return self._result(False, 400, "missing api names")
 
         success, failed = self.api_mgr.remove_entries(names)
         data = {"requested": names, "deleted": success, "failed": failed}
@@ -35,22 +39,12 @@ class ApiDeleteService:
         if not success:
             if len(names) == 1:
                 missing = failed[0] if failed else names[0]
-                return DeleteResult(
-                    ok=False,
-                    status=404,
-                    message=f"api not found: {missing}",
-                    data={},
-                )
-            return DeleteResult(
-                ok=False,
-                status=404,
-                message="no apis were deleted",
-                data={},
-            )
+                return self._result(False, 404, f"api not found: {missing}")
+            return self._result(False, 404, "no apis were deleted")
 
-        return DeleteResult(
-            ok=True,
-            status=200,
-            message="apis deleted" if not failed else "apis deleted partially",
-            data=data,
+        return self._result(
+            True,
+            200,
+            "apis deleted" if not failed else "apis deleted partially",
+            data,
         )

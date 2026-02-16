@@ -48,6 +48,26 @@ class UpdateService:
             self._update_state["logs"] = logs[-120:]
 
     @staticmethod
+    def _now_ms() -> int:
+        return int(asyncio.get_running_loop().time() * 1000)
+
+    def _finish_update(
+        self,
+        *,
+        status: str,
+        message: str,
+        progress: int | None = None,
+    ) -> None:
+        patch: dict[str, Any] = {
+            "status": status,
+            "message": message,
+            "ended_at": self._now_ms(),
+        }
+        if progress is not None:
+            patch["progress"] = progress
+        self._update_state_patch(**patch)
+
+    @staticmethod
     async def _run_cmd(
         args: list[str], *, cwd: Path, timeout: float = 300
     ) -> tuple[int, str, str]:
@@ -67,7 +87,15 @@ class UpdateService:
             ) from None
         out_text = stdout.decode("utf-8", errors="replace").strip()
         err_text = stderr.decode("utf-8", errors="replace").strip()
-        return proc.returncode, out_text, err_text # type: ignore
+        return proc.returncode, out_text, err_text
+
+    async def _run_git_cmd(
+        self,
+        project_root: Path,
+        *args: str,
+        timeout: float = 20,
+    ) -> tuple[int, str, str]:
+        return await self._run_cmd(["git", *args], cwd=project_root, timeout=timeout)
 
     async def _inspect_update(self) -> dict[str, Any]:
         project_root = Path.cwd()
@@ -85,65 +113,48 @@ class UpdateService:
             "reason": "",
         }
 
-        code, out, err = await self._run_cmd(
-            ["git", "rev-parse", "--is-inside-work-tree"], cwd=project_root, timeout=20
+        code, out, err = await self._run_git_cmd(
+            project_root, "rev-parse", "--is-inside-work-tree"
         )
         if code != 0 or out.lower() != "true":
             result["reason"] = err or "not a git repository"
             return result
 
-        code, _, _ = await self._run_cmd(
-            ["git", "fetch", "--all", "--prune"], cwd=project_root, timeout=120
+        code, _, _ = await self._run_git_cmd(
+            project_root, "fetch", "--all", "--prune", timeout=120
         )
         if code != 0:
             result["reason"] = "git fetch failed"
             return result
 
-        code, out, _ = await self._run_cmd(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=project_root,
-            timeout=20,
-        )
-        if code == 0:
-            result["branch"] = out.strip()
+        for key, cmd in (
+            ("branch", ("rev-parse", "--abbrev-ref", "HEAD")),
+            ("current", ("rev-parse", "HEAD")),
+            ("current_short", ("rev-parse", "--short", "HEAD")),
+        ):
+            code, out, _ = await self._run_git_cmd(project_root, *cmd)
+            if code == 0:
+                result[key] = out.strip()
 
-        code, out, _ = await self._run_cmd(
-            ["git", "rev-parse", "HEAD"], cwd=project_root, timeout=20
-        )
-        if code == 0:
-            result["current"] = out.strip()
-
-        code, out, _ = await self._run_cmd(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=project_root, timeout=20
-        )
-        if code == 0:
-            result["current_short"] = out.strip()
-
-        code, out, _ = await self._run_cmd(
-            ["git", "status", "--porcelain"], cwd=project_root, timeout=20
-        )
+        code, out, _ = await self._run_git_cmd(project_root, "status", "--porcelain")
         if code == 0:
             result["dirty"] = bool(out.strip())
 
-        code, out, err = await self._run_cmd(
-            ["git", "rev-parse", "@{u}"], cwd=project_root, timeout=20
-        )
+        code, out, err = await self._run_git_cmd(project_root, "rev-parse", "@{u}")
         if code != 0:
             result["available"] = True
             result["reason"] = err or "no upstream tracking branch"
             return result
         result["remote"] = out.strip()
 
-        code, out, _ = await self._run_cmd(
-            ["git", "rev-parse", "--short", "@{u}"], cwd=project_root, timeout=20
+        code, out, _ = await self._run_git_cmd(
+            project_root, "rev-parse", "--short", "@{u}"
         )
         if code == 0:
             result["remote_short"] = out.strip()
 
-        code, out, err = await self._run_cmd(
-            ["git", "rev-list", "--left-right", "--count", "HEAD...@{u}"],
-            cwd=project_root,
-            timeout=20,
+        code, out, err = await self._run_git_cmd(
+            project_root, "rev-list", "--left-right", "--count", "HEAD...@{u}"
         )
         if code != 0:
             result["reason"] = err or "failed to compare local/remote commits"
@@ -152,8 +163,7 @@ class UpdateService:
         parts = out.split()
         if len(parts) >= 2:
             try:
-                result["ahead"] = int(parts[0])
-                result["behind"] = int(parts[1])
+                result["ahead"], result["behind"] = (int(parts[0]), int(parts[1]))
             except Exception:
                 result["ahead"] = 0
                 result["behind"] = 0
@@ -174,15 +184,14 @@ class UpdateService:
 
         try:
             check = await self._inspect_update()
+            status, msg = ("ready", "update is available") if check.get(
+                "has_update"
+            ) else ("up_to_date", "already up-to-date")
             if not check.get("available"):
-                status = "unavailable"
-                msg = str(check.get("reason") or "update check unavailable")
-            elif check.get("has_update"):
-                status = "ready"
-                msg = "update is available"
-            else:
-                status = "up_to_date"
-                msg = "already up-to-date"
+                status, msg = (
+                    "unavailable",
+                    str(check.get("reason") or "update check unavailable"),
+                )
             self._update_state_patch(
                 status=status,
                 progress=0,
@@ -214,7 +223,7 @@ class UpdateService:
 
     async def _run_update_task(self) -> None:
         async with self._update_lock:
-            started_at = int(asyncio.get_running_loop().time() * 1000)
+            started_at = self._now_ms()
             self._update_state = self._new_update_state()
             self._update_state_patch(
                 status="running",
@@ -230,30 +239,19 @@ class UpdateService:
                 if not check.get("available"):
                     message = str(check.get("reason") or "update is unavailable")
                     self._append_update_log(f"Update unavailable: {message}")
-                    self._update_state_patch(
-                        status="error",
-                        progress=12,
-                        message=message,
-                        ended_at=int(asyncio.get_running_loop().time() * 1000),
-                    )
+                    self._finish_update(status="error", progress=12, message=message)
                     return
                 if check.get("dirty"):
                     message = "working tree has local changes; update aborted"
                     self._append_update_log(message)
-                    self._update_state_patch(
-                        status="error",
-                        progress=12,
-                        message=message,
-                        ended_at=int(asyncio.get_running_loop().time() * 1000),
-                    )
+                    self._finish_update(status="error", progress=12, message=message)
                     return
                 if not check.get("has_update"):
                     self._append_update_log("No update available.")
-                    self._update_state_patch(
+                    self._finish_update(
                         status="up_to_date",
                         progress=100,
                         message="already up-to-date",
-                        ended_at=int(asyncio.get_running_loop().time() * 1000),
                     )
                     return
 
@@ -267,11 +265,10 @@ class UpdateService:
                     self._append_update_log(out)
                 if code != 0:
                     self._append_update_log(err or "git pull failed")
-                    self._update_state_patch(
+                    self._finish_update(
                         status="error",
                         progress=28,
                         message=err or "git pull failed",
-                        ended_at=int(asyncio.get_running_loop().time() * 1000),
                     )
                     return
 
@@ -295,20 +292,18 @@ class UpdateService:
                     self._append_update_log(out)
                 if code != 0:
                     self._append_update_log(err or "pip install failed")
-                    self._update_state_patch(
+                    self._finish_update(
                         status="error",
                         progress=62,
                         message=err or "pip install failed",
-                        ended_at=int(asyncio.get_running_loop().time() * 1000),
                     )
                     return
 
                 self._append_update_log("Update succeeded. Restarting process.")
-                self._update_state_patch(
+                self._finish_update(
                     status="restarting",
                     progress=100,
                     message="update applied, restarting process",
-                    ended_at=int(asyncio.get_running_loop().time() * 1000),
                 )
                 if self.restart_process_handler is None:
                     self._update_state_patch(
@@ -320,8 +315,7 @@ class UpdateService:
             except Exception as exc:
                 logger.error("[api_aggregator] update failed: %s", exc)
                 self._append_update_log(f"Update failed: {exc}")
-                self._update_state_patch(
+                self._finish_update(
                     status="error",
                     message=f"update failed: {exc}",
-                    ended_at=int(asyncio.get_running_loop().time() * 1000),
                 )
