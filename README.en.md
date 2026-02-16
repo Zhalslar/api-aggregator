@@ -20,6 +20,7 @@ An API aggregation runtime for bots and automation systems, with API/site pool m
 
 - [Capabilities](#capabilities)
 - [Installation](#installation)
+- [Docker Deployment](#docker-deployment)
 - [Quick Start](#quick-start)
 - [Runtime and Configuration](#runtime-and-configuration)
 - [Project Layout](#project-layout)
@@ -58,6 +59,49 @@ Notes:
 
 - Distribution name: `api-aggregator`
 - Import name: `api_aggregator`
+
+## Docker Deployment
+
+Full guide: `docs/en/docker.md`
+
+### Option 1: Docker
+
+Build image:
+
+```bash
+docker build -t api-aggregator:latest .
+```
+
+Run container:
+
+```bash
+docker run -d \
+  --name api-aggregator \
+  -p 4141:4141 \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/pool_files:/app/pool_files" \
+  --restart unless-stopped \
+  api-aggregator:latest
+```
+
+### Option 2: Docker Compose
+
+```bash
+docker compose up -d --build
+```
+
+Stop and remove:
+
+```bash
+docker compose down
+```
+
+Notes:
+
+- Dashboard URL: `http://127.0.0.1:4141`
+- Persistent paths:
+  - `./data` -> `/app/data`
+  - `./pool_files` -> `/app/pool_files`
 
 ## Quick Start
 
@@ -130,6 +174,7 @@ api-aggregator/
 - Chinese: `docs/zh-CN/dashboard-http-api.md`
 - English: `docs/en/dashboard-http-api.md`
 - Data schema: `docs/zh-CN/api-data-schema.md`
+- Docker guide: `docs/en/docker.md`
 
 Default dashboard URL: `http://127.0.0.1:4141`
 

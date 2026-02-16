@@ -20,6 +20,7 @@
 
 - [核心能力](#核心能力)
 - [安装](#安装)
+- [Docker 部署](#docker-部署)
 - [快速开始](#快速开始)
 - [运行与配置](#运行与配置)
 - [项目结构](#项目结构)
@@ -58,6 +59,49 @@ pip install .
 
 - 发布包名：`api-aggregator`
 - 导入名：`api_aggregator`
+
+## Docker 部署
+
+完整说明见：`docs/zh-CN/docker.md`
+
+### 方式一：直接使用 Docker
+
+构建镜像：
+
+```bash
+docker build -t api-aggregator:latest .
+```
+
+运行容器：
+
+```bash
+docker run -d \
+  --name api-aggregator \
+  -p 4141:4141 \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/pool_files:/app/pool_files" \
+  --restart unless-stopped \
+  api-aggregator:latest
+```
+
+### 方式二：使用 Docker Compose
+
+```bash
+docker compose up -d --build
+```
+
+停止并移除容器：
+
+```bash
+docker compose down
+```
+
+说明：
+
+- Dashboard 地址：`http://127.0.0.1:4141`
+- 持久化目录：
+  - `./data` -> `/app/data`
+  - `./pool_files` -> `/app/pool_files`
 
 ## 快速开始
 
@@ -130,6 +174,7 @@ api-aggregator/
 - 中文：`docs/zh-CN/dashboard-http-api.md`
 - English: `docs/en/dashboard-http-api.md`
 - 数据结构说明：`docs/zh-CN/api-data-schema.md`
+- Docker 部署：`docs/zh-CN/docker.md`
 
 Dashboard 默认地址：`http://127.0.0.1:4141`
 

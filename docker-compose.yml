@@ -1,0 +1,20 @@
+services:
+  api-aggregator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: api-aggregator:latest
+    container_name: api-aggregator
+    restart: unless-stopped
+    command:
+      - python
+      - start.py
+      - --dashboard-host
+      - 0.0.0.0
+      - --dashboard-port
+      - "4141"
+    ports:
+      - "4141:4141"
+    volumes:
+      - ./data:/app/data
+      - ./pool_files:/app/pool_files
