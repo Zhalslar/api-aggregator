@@ -262,7 +262,9 @@ class DashboardServer:
             {
                 "sites": sites,
                 "apis": apis,
-                "pool_io_default_dir": str(self.pool_io_service.pool_files_dir.resolve()),
+                "pool_io_default_dir": str(
+                    self.pool_io_service.pool_files_dir.resolve()
+                ),
                 "boot_id": BOOT_ID,
             }
         )
@@ -282,7 +284,7 @@ class DashboardServer:
             return self._error(str(exc), status=500)
 
     async def delete_pool_files(self, request: web.Request) -> web.Response:
-        """POST /api/pool/files/delete : delete json files under default pool files dir."""
+        """POST /api/pool/files/delete : delete json files in default pool dir."""
         try:
             payload = await self._read_json(request)
             raw_names = payload.get("names", [])
@@ -731,7 +733,7 @@ class DashboardServer:
             return self._error(f"restart failed: {exc}", status=500)
 
     async def restart_system_full(self, _: web.Request) -> web.Response:
-        """POST /api/system/restart/full : restart full Python process asynchronously."""
+        """POST /api/system/restart/full : restart full Python process async."""
         try:
             await self.runtime_control_service.restart_process_async()
             return self._ok({"accepted": True}, "process restart scheduled")

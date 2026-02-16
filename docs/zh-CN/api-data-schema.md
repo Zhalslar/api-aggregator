@@ -1,164 +1,248 @@
-﻿# API / 数据结构手册
+﻿# API / 数据结构手册（当前实现）
 
-本文说明 `site_pool.json` 与 `api_pool.json` 的字段定义、默认值和约束。
+本文按代码实现说明数据模型与落盘结构，覆盖以下模块：
 
-## 文件位置
+- `src/api_aggregator/model.py`
+- `src/api_aggregator/database.py`
+- `src/api_aggregator/data_service/local_data.py`
+- `src/api_aggregator/service/pool_io_service.py`
 
-- 运行时数据目录：`<data_dir>/`
-- 站点池：`<data_dir>/site_pool.json`
-- API 池：`<data_dir>/api_pool.json`
+## 1. 数据总览
 
-默认情况下，`data_dir` 由 `APIConfig` 指向仓库根目录 `data/`（可在初始化时自定义）。
+运行时主要数据分三层：
 
-内置站点/API 配置默认从仓库根目录 `presets/` 读取：
-- `presets/builtin_sites.json`
-- `presets/builtin_apis.json`
+1. 池元数据（SQLite）
+- 文件：`data/api_aggregator.db`
+- 表：`site_pool`、`api_pool`
+- 每行使用 JSON 字符串存储完整 payload。
 
-## 结构总览
+2. 本地内容缓存（文件系统）
+- 根目录：`data/local/`
+- 子目录：`text/`、`image/`、`video/`、`audio/`
 
-两个文件都采用 JSON 数组：
+3. 池导入导出文件（JSON）
+- 默认目录：`pool_files/`
+- 用于导入导出，不是主存储。
 
-```json
-[
-  { "...": "..." },
-  { "...": "..." }
-]
-```
+## 2. Site 数据模型
 
-- 每个元素代表 1 条配置项。
-- 非数组内容会被视为无效并回退为空列表。
+### 2.1 字段定义
 
-## site_pool.json
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | `string` | 是 | 无 | 站点名称，唯一。 |
+| `url` | `string` | 是 | 无 | 站点前缀 URL，用于匹配 API 所属站点。 |
+| `enabled` | `boolean` | 否 | `true` | 是否启用。 |
+| `headers` | `object` | 否 | `{}` | 请求头附加项。 |
+| `keys` | `object` | 否 | `{}` | 会同时注入请求 header 和 query params。 |
+| `timeout` | `number` | 否 | `60` | 请求超时（秒）。 |
 
-### 单条结构
+示例：
 
 ```json
 {
-  "__template_key": "default",
-  "name": "example-site",
-  "url": "https://api.example.com",
+  "name": "FAPI",
+  "url": "https://api.lolimi.cn",
   "enabled": true,
-  "headers": {
-    "User-Agent": "custom-client/1.0"
-  },
-  "keys": {
-    "token": "your-token"
-  },
+  "headers": {},
+  "keys": {},
   "timeout": 60
 }
 ```
 
-### 字段说明
+### 2.2 行为规则
+
+- `SiteEntry.is_vested(full_url)` 使用前缀匹配：`full_url.startswith(site.url)`。
+- 若 API URL 命中站点：
+  - 请求 headers 使用站点 headers（无命中时用全局默认 headers）。
+  - `keys` 会合并进 headers 和 params。
+  - 超时使用站点 timeout（无命中时用全局默认 timeout）。
+
+## 3. API 数据模型
+
+### 3.1 字段定义
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `__template_key` | `string` | 否 | `"default"` | 模板标记，系统内部使用。 |
-| `name` | `string` | 是 | 无 | 站点名。必须非空；重复时会自动改名为 `name_2`、`name_3`。 |
-| `url` | `string` | 是 | 无 | 站点根地址前缀，用于匹配 API URL。 |
-| `enabled` | `boolean` | 否 | `true` | 是否启用该站点配置。 |
-| `headers` | `object<string,string>` | 否 | `{}` | 请求头附加项。 |
-| `keys` | `object<string,string>` | 否 | `{}` | 鉴权/密钥参数，会同时注入 headers 与 params。 |
-| `timeout` | `number` | 否 | `60` | 请求超时秒数。 |
+| `name` | `string` | 是 | 无 | API 名称，唯一。 |
+| `url` | `string` | 是 | 无 | 请求地址。 |
+| `type` | `string` | 否 | `"text"` | `text/image/video/audio`。 |
+| `params` | `object` | 否 | `{}` | 请求参数。 |
+| `parse` | `string` | 否 | `""` | JSON 路径提取规则。 |
+| `enabled` | `boolean` | 否 | `true` | 开关。 |
+| `scope` | `string[]` | 否 | `[]` | 作用域限制（admin/user/group/session）。 |
+| `keywords` | `string[]` | 否 | `[name]` | 正则触发词。 |
+| `cron` | `string` | 否 | `""` | 5 段 cron 表达式。 |
+| `valid` | `boolean` | 否 | `true` | 业务有效性标记（测试后可更新）。 |
+| `site` | `string` | 否 | `""` | 所属站点名（自动解析/同步）。 |
 
-### 行为规则
-
-- `url` 匹配逻辑是“前缀匹配”（`startswith`）。
-- 命中站点后：`headers` 与 `keys` 会参与请求参数构建。
-
-## api_pool.json
-
-### 单条结构
+示例：
 
 ```json
 {
-  "name": "daily_quote",
+  "name": "quote",
   "url": "https://api.example.com/quote",
   "type": "text",
-  "params": {
-    "lang": "zh"
-  },
+  "params": {"lang": "zh"},
   "parse": "data.content",
   "enabled": true,
-  "scope": ["admin", "group_123"],
-  "keywords": ["每日一言", "quote"],
+  "scope": [],
+  "keywords": ["quote"],
   "cron": "0 * * * *",
   "valid": true,
-  "template": "default",
-  "__template_key": "default"
+  "site": "FAPI"
 }
 ```
 
-### 字段说明
+### 3.2 触发规则（消息匹配）
 
-| 字段 | 类型 | 必填 | 默认值 | 说明 |
-| --- | --- | --- | --- | --- |
-| `name` | `string` | 是 | 无 | API 名称。必须非空；重复时自动改名。 |
-| `url` | `string` | 是 | 无 | API 请求地址。 |
-| `type` | `string` | 否 | `"text"` | 数据类型：`text` / `image` / `video` / `audio`。 |
-| `params` | `object` | 否 | `{}` | 查询参数。非对象会被归一化为 `{}`。 |
-| `parse` | `string` | 否 | `""` | JSON 嵌套提取规则（如 `data.content`）。 |
-| `enabled` | `boolean` | 否 | `true` | 是否启用。支持字符串布尔归一化。 |
-| `scope` | `string[]` | 否 | `[]` | 权限范围：可放 `admin`、用户ID、群ID、会话ID。 |
-| `keywords` | `string[]` | 否 | `[name]` | 正则关键词列表；空字符串会被过滤。 |
-| `cron` | `string` | 否 | `""` | 5 段 crontab 表达式。 |
-| `valid` | `boolean` | 否 | `true` | 业务有效标记（测试接口可更新）。 |
-| `template` | `string` | 否 | `"default"` | 模板名（Dashboard 维护用）。 |
-| `__template_key` | `string` | 否 | 跟随 `template` | 模板键（Dashboard 维护用）。 |
+`APIEntry.check_activate(...)` 必须同时满足：
 
-### 归一化规则（新增/编辑时）
+1. `enabled=true`
+2. `valid=true`
+3. scope 放行
+4. `keywords` 任一正则命中
 
-- `enabled` / `valid`：支持 `"true"`、`"false"`、`"1"`、`"0"` 等输入。
-- `scope`：
-  - 传数组 -> 过滤空字符串后保留。
-  - 传字符串 -> 转为单元素数组。
-  - 其他 -> `[]`。
-- `keywords`：同 `scope`，默认 `[name]`。
-- `params`：仅接受对象，其他类型回退 `{}`。
+### 3.3 归一化规则
 
-## 最小可用示例
+- 布尔字段支持字符串归一化：`true/false/1/0/yes/no/on/off`。
+- `scope/keywords`：
+  - 数组 -> 过滤空字符串
+  - 字符串 -> 单元素数组
+  - 其他 -> 空数组
+- `keywords` 空时默认回填 `[name]`。
+- `type` 非法时，运行时会回退到 `text`。
 
-### site_pool.json
+## 4. SQLite 存储结构
+
+数据库：`data/api_aggregator.db`
+
+表结构：
+
+- `site_pool(pos INTEGER PRIMARY KEY, name TEXT UNIQUE, payload TEXT)`
+- `api_pool(pos INTEGER PRIMARY KEY, name TEXT UNIQUE, payload TEXT)`
+
+说明：
+
+- `payload` 为 JSON 字符串，存完整对象。
+- `pos` 保留顺序。
+- 批量更新采用 upsert + delete names。
+
+## 5. 本地数据结构（data/local）
+
+## 5.1 文本类型（text）
+
+路径：`data/local/text/{name}.json`
+
+- 内容：字符串数组
+- 去重索引：`data/local/text/{name}.index.json`
+
+示例：
 
 ```json
 [
-  {
-    "name": "default-site",
-    "url": "https://api.example.com",
-    "enabled": true,
-    "headers": {},
-    "keys": {},
-    "timeout": 60
-  }
+  "第一条文本",
+  "第二条文本"
 ]
 ```
 
-### api_pool.json
+索引示例：
 
 ```json
-[
-  {
-    "name": "quote",
-    "url": "https://api.example.com/quote",
-    "type": "text",
-    "params": {},
-    "parse": "",
-    "enabled": true,
-    "scope": [],
-    "keywords": ["quote"],
-    "cron": "",
-    "valid": true
-  }
-]
+{
+  "version": 1,
+  "source_mtime_ns": 1739586000000000000,
+  "source_size": 128,
+  "hashes": ["..."]
+}
 ```
 
-## 常见错误
+## 5.2 二进制类型（image/video/audio）
 
-1. `name` 或 `url` 为空
-- 新增/更新会失败，返回错误信息。
+目录：`data/local/{type}/{name}/`
 
-2. `scope` 写成对象 `{}`
-- 会导致匹配逻辑异常。请使用数组 `[]`。
+- 数据文件命名：`{name}_{seq}_{hash8}.{ext}`
+- 去重索引：`data/local/{type}/{name}/.index.json`
 
-3. `type` 非法
-- 仅支持 `text/image/video/audio`，否则在构建 `APIEntry` 时抛错。
+索引示例：
 
+```json
+{
+  "version": 1,
+  "hash_to_file": {
+    "<sha256>": "wallpaper_0_abcd1234.jpg"
+  }
+}
+```
+
+## 6. 池导入导出文件结构（pool_files）
+
+导出目标：JSON 数组，每个元素是一条 Site 或 API。
+
+关键规则：
+
+- 导出时会去掉部分运行态字段：
+  - Site：移除 `enabled`
+  - API：移除 `enabled`、`valid`、`site`
+- 导入时会自动归一化并跳过重名。
+- 仅支持 `.json` 文件。
+
+## 7. Dashboard 批量请求体模型
+
+## 7.1 `ItemsBatch`
+
+```json
+{"items": [{"...": "..."}]}
+```
+
+用于新增与预览测试。
+
+## 7.2 `UpdateItemsBatch`
+
+```json
+{
+  "items": [
+    {"name": "target_name", "payload": {"field": "new_value"}}
+  ]
+}
+```
+
+用于批量更新。
+
+## 7.3 `NamesBatch`
+
+```json
+{"names": ["name_a", "name_b"]}
+```
+
+用于按名称批量删除 Site/API。
+
+## 7.4 `TargetsBatch`
+
+```json
+{
+  "targets": [
+    {"type": "text", "name": "quote"},
+    {"type": "image", "name": "wallpaper", "items": [{"path": "..."}]}
+  ]
+}
+```
+
+用于本地集合查询/删除、集合内条目删除。
+
+## 8. 常见数据错误与排查
+
+1. `site name/url` 或 `api name/url` 为空
+- 触发 `ValueError`，接口返回 `status=error`。
+
+2. `items/names/targets` 结构不符合批量模型
+- 常见于传了对象而不是数组，返回 `400`。
+
+3. 本地文件访问越界
+- `GET /api/local-file` 或 `/assets/*` 非法路径会返回 `403`。
+
+4. 导入文件不是 JSON 数组
+- 返回 `import file must be a JSON array`。
+
+5. API type 填写非法
+- 存储可写入，但运行时会降级为 `text`，导致预期类型不一致。

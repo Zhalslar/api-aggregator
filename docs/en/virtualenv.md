@@ -1,34 +1,15 @@
-# Virtual Environment Guide
+﻿# Virtual Environment Guide
 
-Use a project-local `.venv` as the default workflow.
+Use a project-local `.venv` and prefer explicit manual commands for reproducible setup.
 
-## Windows PowerShell (Recommended)
-
-1. Create venv and install dependencies (includes APScheduler by default):
-
-```powershell
-.\scripts\bootstrap.ps1
-```
-
-2. Activate:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-3. Start the app:
-
-```powershell
-python start.py
-```
-
-## Windows Manual Setup
+## Windows PowerShell
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
-pip install -e .[scheduler]
+pip install -r requirements.txt
+python start.py
 ```
 
 ## macOS / Linux
@@ -37,20 +18,18 @@ pip install -e .[scheduler]
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
-pip install -e ".[scheduler]"
+pip install -r requirements.txt
 python start.py
 ```
 
-## Optional: Skip scheduler dependency
-
-If you do not need cron scheduling:
-
-```powershell
-.\scripts\bootstrap.ps1 -NoScheduler
-```
-
-Or manually:
+## Install as Package (Optional)
 
 ```bash
 pip install .
+```
+
+## Sanity Check
+
+```bash
+python -c "import api_aggregator; print('ok')"
 ```

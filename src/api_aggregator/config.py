@@ -19,7 +19,6 @@ class APIConfig:
 
         self.data_dir = project_root / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.config_file = self.data_dir / "app_config.json"
 
         self.dashboard = DashboardConfig()
 

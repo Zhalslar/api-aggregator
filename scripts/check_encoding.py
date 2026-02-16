@@ -4,7 +4,6 @@ import argparse
 import sys
 from pathlib import Path
 
-
 TEXT_EXTENSIONS = {
     ".py",
     ".md",

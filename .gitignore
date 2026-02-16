@@ -34,3 +34,23 @@ test-results/
 
 # Runtime database and local persisted data
 data/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+.python-version
+
+# Additional Python/tool caches
+.hypothesis/
+.ipynb_checkpoints/
+pip-wheel-metadata/
+
+# Coverage artifacts
+.coverage.*
+coverage.xml
+
+# Node package manager caches
+.npm/
+.pnpm-store/
+yarn-error.log

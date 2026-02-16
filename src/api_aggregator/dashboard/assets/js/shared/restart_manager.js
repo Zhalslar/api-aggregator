@@ -113,9 +113,48 @@ function createRestartManager(deps) {
     setRestartProgressValue(0);
   }
 
-  async function waitForRestartAndReload() {
-    // Speed-first behavior: do not wait for boot-id transition, reload quickly.
-    await new Promise((resolve) => setTimeout(resolve, 450));
+  async function readBootId() {
+    try {
+      const resp = await fetch(`/api/pool?_=${Date.now()}`, {
+        cache: "no-store",
+      });
+      if (!resp.ok) return null;
+      const payload = await resp.json();
+      if (payload?.status !== "ok") return null;
+      const bootId = String(payload?.data?.boot_id || "").trim();
+      return bootId;
+    } catch {
+      return null;
+    }
+  }
+
+  async function waitForRestartAndReload(previousBootId = "") {
+    const maxAttempts = 36;
+    let sawDisconnect = false;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      const nextBootId = await readBootId();
+      if (nextBootId === null) {
+        sawDisconnect = true;
+        continue;
+      }
+      const bootChanged =
+        Boolean(previousBootId) &&
+        Boolean(nextBootId) &&
+        nextBootId !== previousBootId;
+      if (bootChanged) {
+        window.location.reload();
+        return;
+      }
+      // Fallback: if we have observed a disconnect and service is reachable again,
+      // assume restart is complete even when boot-id cannot be read reliably.
+      if (!previousBootId && sawDisconnect && nextBootId) {
+        window.location.reload();
+        return;
+      }
+    }
     window.location.reload();
   }
 
@@ -133,9 +172,10 @@ function createRestartManager(deps) {
         modal.dataset.running = "1";
       }
       try {
+        const previousBootId = await readBootId();
         await req("/api/system/restart/full", { method: "POST" });
         setRestartModalStatus(t("restart_modal_status_reconnecting"));
-        await waitForRestartAndReload();
+        await waitForRestartAndReload(previousBootId);
       } catch (err) {
         const elapsed = Date.now() - startedAt;
         if (elapsed < minAnimationMs) {

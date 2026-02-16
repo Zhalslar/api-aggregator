@@ -1,34 +1,15 @@
-# 虚拟环境使用
+﻿# 虚拟环境使用
 
-推荐使用项目根目录下的 `.venv`。
+建议使用项目根目录 `.venv`，并优先采用手动命令，确保与当前依赖声明一致。
 
-## Windows PowerShell（推荐）
-
-1. 创建并安装依赖（默认包含 APScheduler）：
-
-```powershell
-.\scripts\bootstrap.ps1
-```
-
-2. 激活虚拟环境：
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-3. 启动项目：
-
-```powershell
-python start.py
-```
-
-## Windows 手动方式
+## Windows PowerShell
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
-pip install -e .[scheduler]
+pip install -r requirements.txt
+python start.py
 ```
 
 ## macOS / Linux
@@ -37,20 +18,18 @@ pip install -e .[scheduler]
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
-pip install -e ".[scheduler]"
+pip install -r requirements.txt
 python start.py
 ```
 
-## 可选：不安装定时器依赖
-
-如果你不需要 cron，可安装最小依赖：
-
-```powershell
-.\scripts\bootstrap.ps1 -NoScheduler
-```
-
-或手动：
+## 以包方式安装（可选）
 
 ```bash
 pip install .
+```
+
+## 校验安装
+
+```bash
+python -c "import api_aggregator; print('ok')"
 ```
