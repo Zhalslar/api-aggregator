@@ -36,3 +36,10 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Auto-import default pool files on first startup when pools are empty; write marker files in the data directory to prevent repeated imports.
 
+## [0.1.3] - 2026-02-19
+
+### Added
+- Added `APICoreApp.load_site_pool_from_file(...)` and `APICoreApp.load_api_pool_from_file(...)` for loading pool files by explicit path.
+
+### Removed
+- Removed one-time auto-import of default pool files during `APICoreApp.start()`.

@@ -25,14 +25,6 @@ from .service import (
 )
 
 CronEntryHandler = Callable[[APIEntry], Awaitable[None]]
-DEFAULT_POOL_FILES = {
-    "site": "site_pool_default.json",
-    "api": "api_pool_default.json",
-}
-DEFAULT_POOL_MARKERS = {
-    "site": ".pool_default_site_imported",
-    "api": ".pool_default_api_imported",
-}
 
 
 class APICoreApp:
@@ -121,7 +113,6 @@ class APICoreApp:
             self.api_mgr.initialize(),
             self.site_mgr.initialize(),
         )
-        self._auto_import_default_pools()
         logger.info("[app] api entries: %d", len(self.api_mgr.entries))
         logger.info("[app] site entries: %d", len(self.site_mgr.entries))
         self.scheduler.start()
@@ -139,9 +130,9 @@ class APICoreApp:
         self._started = True
         logger.info("[app] startup complete")
 
-    def _auto_import_default_pools(self) -> None:
+    def _create_pool_io_service(self) -> PoolIOService:
         site_sync_service = SiteSyncService(self.api_mgr, self.site_mgr)
-        pool_io_service = PoolIOService(
+        return PoolIOService(
             self.cfg,
             self.db,
             self.api_mgr,
@@ -150,54 +141,34 @@ class APICoreApp:
             sync_sites=site_sync_service.sync_all_api_sites,
         )
 
-        for pool_type in ("site", "api"):
-            marker_name = DEFAULT_POOL_MARKERS[pool_type]
-            marker_path = self.cfg.data_dir / marker_name
-            if marker_path.exists():
-                continue
+    def load_site_pool_from_file(
+        self, file_path: str | Path
+    ) -> dict[str, object]:
+        """Load site pool data from a JSON file path."""
+        return self._load_pool_from_file("site", file_path)
 
-            pool_rows = (
-                self.db.site_pool if pool_type == "site" else self.db.api_pool
-            )
-            if pool_rows:
-                try:
-                    marker_path.touch()
-                except Exception as exc:
-                    logger.warning(
-                        "[app] mark default pool imported failed (%s): %s",
-                        marker_name,
-                        exc,
-                    )
-                continue
+    def load_api_pool_from_file(
+        self, file_path: str | Path
+    ) -> dict[str, object]:
+        """Load api pool data from a JSON file path."""
+        return self._load_pool_from_file("api", file_path)
 
-            default_file = DEFAULT_POOL_FILES[pool_type]
-            default_path = self.cfg.pool_files_dir / default_file
-            if not default_path.is_file():
-                logger.warning(
-                    "[app] default pool file missing: %s",
-                    default_path,
-                )
-                continue
-
-            try:
-                result = pool_io_service.import_pool_from_file(
-                    pool_type,
-                    default_file,
-                )
-                logger.info(
-                    "[app] auto imported %s pool: imported=%s skipped=%s failed=%s",
-                    pool_type,
-                    result.get("imported"),
-                    result.get("skipped"),
-                    result.get("failed"),
-                )
-                marker_path.touch()
-            except Exception as exc:
-                logger.warning(
-                    "[app] auto import default pool failed (%s): %s",
-                    pool_type,
-                    exc,
-                )
+    def _load_pool_from_file(
+        self, pool_type: str, file_path: str | Path
+    ) -> dict[str, object]:
+        pool_io_service = self._create_pool_io_service()
+        path = Path(file_path).expanduser()
+        if not path.is_absolute():
+            path = (Path.cwd() / path).resolve()
+        if path.suffix.lower() != ".json":
+            raise ValueError("only .json files are supported")
+        if not path.exists() or not path.is_file():
+            raise ValueError(f"file not found: {path}")
+        result = pool_io_service.import_pool_from_bytes(
+            pool_type, path.read_bytes()
+        )
+        result["file_path"] = str(path)
+        return result
 
     async def stop(self) -> None:
         """Stop core services and release network resources.

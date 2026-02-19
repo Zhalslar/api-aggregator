@@ -20,7 +20,7 @@ class APIConfig:
             )
         self.logo_path = self.dashboard_assets_dir / "images" / "logo.png"
 
-        project_root = Path(__file__).resolve().parents[2]
+        project_root = Path(__file__).resolve().parent
         self.data_dir = (data_dir or (project_root / "data")).resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
