@@ -29,3 +29,10 @@ All notable changes to this project will be documented in this file.
 - `pyproject.toml` for lint/test tool configuration.
 - `tests/test_api_entry_manager.py` regression tests for add-entry normalization.
 - Initial `README.md` and release checklist.
+
+
+## [0.1.2] - 2026-02-19
+
+### Added
+- Auto-import default pool files on first startup when pools are empty; write marker files in the data directory to prevent repeated imports.
+
